@@ -19,6 +19,7 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 - [Data model](./20-data-model.md) — persistence conventions, core simple-store entities, invariants, and the order state machine
 - [Pricing and calculations](./30-pricing-and-calculations.md) — money rules, pricing pipeline, recalculation timing, and audit guarantees
 - [Plugin system](./40-plugin-system.md) — `CommercePlugin`, runtime requirements, hooks, major domain expansion rules, and forbidden behavior
+- [Hooks](./42-hooks.md) — app-level `before`/`after` hooks, `createHook` factory, operation type narrowing, and `runInBackground`
 - [Marketplace plugin](./45-marketplace-plugin.md) — marketplace-owned schema, product ownership, vendor APIs, order splitting, and migration boundaries
 - [Adapter system](./50-adapter-system.md) — database and provider adapter contracts, dormant activation, and fulfillment model boundaries
 - [Type inference](./60-type-inference.md) — `createCommerce()`-driven type flow and compile-time guarantees
@@ -32,12 +33,13 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 2. [Data model](./20-data-model.md)
 3. [Pricing and calculations](./30-pricing-and-calculations.md)
 4. [Plugin system](./40-plugin-system.md)
-5. [Marketplace plugin](./45-marketplace-plugin.md)
-6. [Adapter system](./50-adapter-system.md)
-7. [Type inference](./60-type-inference.md)
-8. [Packages and monorepo](./70-packages-and-monorepo.md)
-9. [Framework adapters](./80-framework-adapters.md)
-10. [CLI and tooling](./90-cli-and-tooling.md)
+5. [Hooks](./42-hooks.md)
+6. [Marketplace plugin](./45-marketplace-plugin.md)
+7. [Adapter system](./50-adapter-system.md)
+8. [Type inference](./60-type-inference.md)
+9. [Packages and monorepo](./70-packages-and-monorepo.md)
+10. [Framework adapters](./80-framework-adapters.md)
+11. [CLI and tooling](./90-cli-and-tooling.md)
 
 ## Reading rules
 
