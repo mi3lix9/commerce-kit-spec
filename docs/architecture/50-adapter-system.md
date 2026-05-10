@@ -234,6 +234,34 @@ Normative rules:
 - Payout activation is commonly required by `@commerce-kit/vendor-payouts`, but activation itself is still owned by core.
 - Payout-specific schema, routes, hooks, and typed APIs remain dormant until activation.
 
+## Scheduler adapter
+
+The scheduler adapter is optional and follows the same dormant activation pattern. When not configured, deferred task scheduling is dormant and no task-related schema or behavior is active.
+
+```ts
+interface SchedulerAdapter {
+  id: string
+  schedule(task: ScheduledTask): Promise<void>
+  cancel(taskId: string): Promise<void>
+}
+
+type ScheduledTask = {
+  id: string       // idempotency key
+  type: string     // registered task key, e.g. 'orders:auto-cancel'
+  data: unknown
+  runAt: Date
+  retries?: number
+}
+```
+
+Normative rules:
+
+- Scheduling the same `task.id` twice must be a no-op on the adapter side.
+- `cancel` must be safe to call for a task that has already run or does not exist.
+- The scheduler adapter does not own task execution logic — Commerce Kit owns that through `commerce.tasks`.
+
+For the full deferred task and recurring task model, see [43-background-tasks.md](./43-background-tasks.md).
+
 ## Future RFCs
 
 - Additional optional adapter interfaces beyond the current core set

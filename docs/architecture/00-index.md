@@ -20,6 +20,7 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 - [Pricing and calculations](./30-pricing-and-calculations.md) — money rules, pricing pipeline, recalculation timing, and audit guarantees
 - [Plugin system](./40-plugin-system.md) — `CommercePlugin`, runtime requirements, hooks, major domain expansion rules, and forbidden behavior
 - [Hooks](./42-hooks.md) — app-level `before`/`after` hooks, `createHook` factory, operation type narrowing, and `runInBackground`
+- [Background tasks](./43-background-tasks.md) — immediate side effects, deferred tasks via scheduler adapter, and recurring tasks via `commerce.tasks`
 - [Marketplace plugin](./45-marketplace-plugin.md) — marketplace-owned schema, product ownership, vendor APIs, order splitting, and migration boundaries
 - [Adapter system](./50-adapter-system.md) — database and provider adapter contracts, dormant activation, and fulfillment model boundaries
 - [Type inference](./60-type-inference.md) — `createCommerce()`-driven type flow and compile-time guarantees
@@ -34,12 +35,13 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 3. [Pricing and calculations](./30-pricing-and-calculations.md)
 4. [Plugin system](./40-plugin-system.md)
 5. [Hooks](./42-hooks.md)
-6. [Marketplace plugin](./45-marketplace-plugin.md)
-7. [Adapter system](./50-adapter-system.md)
-8. [Type inference](./60-type-inference.md)
-9. [Packages and monorepo](./70-packages-and-monorepo.md)
-10. [Framework adapters](./80-framework-adapters.md)
-11. [CLI and tooling](./90-cli-and-tooling.md)
+6. [Background tasks](./43-background-tasks.md)
+7. [Marketplace plugin](./45-marketplace-plugin.md)
+8. [Adapter system](./50-adapter-system.md)
+9. [Type inference](./60-type-inference.md)
+10. [Packages and monorepo](./70-packages-and-monorepo.md)
+11. [Framework adapters](./80-framework-adapters.md)
+12. [CLI and tooling](./90-cli-and-tooling.md)
 
 ## Reading rules
 

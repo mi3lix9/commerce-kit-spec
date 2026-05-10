@@ -129,6 +129,9 @@ commerce-kit/
 | `@commerce-kit/digital-products` | plugin | post-v1 |
 | `@commerce-kit/subscriptions` | plugin | post-v1 |
 | `@commerce-kit/orpc` | oRPC procedures + OpenAPI | post-v1 |
+| `@commerce-kit/bullmq` | scheduler adapter (BullMQ + Redis) | post-v1 |
+| `@commerce-kit/inngest` | scheduler adapter (Inngest) | post-v1 |
+| `@commerce-kit/pg-boss` | scheduler adapter (pg-boss + PostgreSQL) | post-v1 |
 | `@commerce-kit/stripe` | payment adapter | community |
 | `@commerce-kit/dhl` | fulfillment adapter (carrier shipping) | community |
 | `@commerce-kit/toyou` | fulfillment adapter (local delivery) | community |
