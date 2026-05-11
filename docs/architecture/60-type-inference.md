@@ -195,11 +195,11 @@ The following domains are built into core and available without additional plugi
 | Domain | Methods | Description |
 |--------|---------|-------------|
 | `products` | `list`, `get`, `create`, `update`, `archive`, `versions`, `getVersion` | Product catalog with version history |
-| `orders` | `list`, `get`, `checkout`, `cancel`, `confirm`, `setPaid`, `refund` | Order checkout and lifecycle workflows |
+| `orders` | `list`, `get`, `checkout`, `calculate`, `cancel`, `confirm`, `setPaid`, `refund` | Order checkout, calculation, and lifecycle workflows |
 | `payments` | `list`, `get` | Immutable payment ledger |
 | `customers` | `list`, `get`, `create`, `update` | Customer records |
 | `categories` | `list`, `get`, `create`, `update`, `archive` | Product categories |
-| `cart` | `get`, `add`, `update`, `remove`, `clear` | Client-side cart primitive with optional server persistence |
+| `cart` | `get`, `add`, `update`, `remove`, `clear`, `calculate` | Client-side cart with auto-recalculation; optional server persistence — see [22-cart.md](./22-cart.md) |
 
 ### Product versioning
 

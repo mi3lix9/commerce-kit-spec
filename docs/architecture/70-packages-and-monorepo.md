@@ -92,51 +92,56 @@ commerce-kit/
 
 ### Package map
 
-#### v1 packages
+#### Core packages
 
-| Package | Type | Ships |
-|---|---|---|
-| `commerce-kit` | core + bundled `drizzleAdapter` + bundled adapter interfaces for payment/fulfillment/storage/payout | v1 |
-| `@commerce-kit/moyasar` | payment adapter | v1 |
-| `@commerce-kit/tabby` | payment adapter (BNPL) | v1 |
-| `@commerce-kit/better-auth` | auth bridge | v1 |
-| `@commerce-kit/pricing-rules` | plugin (static rules) | v1 |
-| `@commerce-kit/pricing-rules-dynamic` | plugin (DB-backed rules) | v1 |
-| `@commerce-kit/coupons` | plugin | v1 |
-| `@commerce-kit/aramex` | fulfillment adapter (carrier shipping) | v1 |
-| `@commerce-kit/smsa` | fulfillment adapter (carrier shipping) | v1 |
-| `@commerce-kit/marsool` | fulfillment adapter (local delivery) | v1 |
-| `@commerce-kit/jahez` | fulfillment adapter (local delivery) | v1 |
-| `@commerce-kit/marketplace` | major domain plugin for vendor, `vendorOrder`, vendor ownership, and marketplace workflows | v1 |
-| `@commerce-kit/vendor-payouts` | marketplace-adjacent plugin using the core payout adapter interface | v1 |
-| `@commerce-kit/hono` | framework adapter | v1 |
-| `@commerce-kit/elysia` | framework adapter | v1 |
-| `@commerce-kit/express` | framework adapter | v1 |
-| `@commerce-kit/fastify` | framework adapter | v1 |
-| `@commerce-kit/nextjs` | framework adapter | v1 |
-| `@commerce-kit/client` | fetch-based type-safe client runtime, including `createCommerceClient` | v1 |
-| `@commerce-kit/cli` | CLI | v1 |
+| Package | Type |
+|---|---|
+| `commerce-kit` | core + bundled `drizzleAdapter` + bundled adapter interfaces for payment/fulfillment/storage/payout/scheduler |
+| `@commerce-kit/moyasar` | payment adapter |
+| `@commerce-kit/tabby` | payment adapter (BNPL) |
+| `@commerce-kit/better-auth` | auth bridge |
+| `@commerce-kit/pricing-rules` | plugin (static rules) |
+| `@commerce-kit/pricing-rules-dynamic` | plugin (DB-backed rules) |
+| `@commerce-kit/coupons` | plugin |
+| `@commerce-kit/aramex` | fulfillment adapter (carrier shipping) |
+| `@commerce-kit/smsa` | fulfillment adapter (carrier shipping) |
+| `@commerce-kit/marsool` | fulfillment adapter (local delivery) |
+| `@commerce-kit/jahez` | fulfillment adapter (local delivery) |
+| `@commerce-kit/marketplace` | major domain plugin for vendor, `vendorOrder`, vendor ownership, and marketplace workflows |
+| `@commerce-kit/vendor-payouts` | marketplace-adjacent plugin using the core payout adapter interface |
+| `@commerce-kit/hono` | framework adapter |
+| `@commerce-kit/elysia` | framework adapter |
+| `@commerce-kit/express` | framework adapter |
+| `@commerce-kit/fastify` | framework adapter |
+| `@commerce-kit/nextjs` | framework adapter |
+| `@commerce-kit/client` | fetch-based type-safe client runtime, including `createCommerceClient` |
+| `@commerce-kit/cli` | CLI |
 
-#### Post-v1 and community packages
+#### Planned packages
 
-| Package | Type | Ships |
-|---|---|---|
-| `@commerce-kit/cart` | plugin | post-v1 |
-| `@commerce-kit/customers` | plugin | post-v1 |
-| `@commerce-kit/inventory` | plugin | post-v1 |
-| `@commerce-kit/localization` | plugin | post-v1 |
-| `@commerce-kit/reviews` | plugin | post-v1 |
-| `@commerce-kit/digital-products` | plugin | post-v1 |
-| `@commerce-kit/subscriptions` | plugin | post-v1 |
-| `@commerce-kit/orpc` | oRPC procedures + OpenAPI | post-v1 |
-| `@commerce-kit/bullmq` | scheduler adapter (BullMQ + Redis) | post-v1 |
-| `@commerce-kit/inngest` | scheduler adapter (Inngest) | post-v1 |
-| `@commerce-kit/pg-boss` | scheduler adapter (pg-boss + PostgreSQL) | post-v1 |
-| `@commerce-kit/stripe` | payment adapter | community |
-| `@commerce-kit/dhl` | fulfillment adapter (carrier shipping) | community |
-| `@commerce-kit/toyou` | fulfillment adapter (local delivery) | community |
-| `@commerce-kit/hyperpay` | payout adapter | community |
-| `@commerce-kit/r2` | storage adapter | community |
+| Package | Type |
+|---|---|
+| `@commerce-kit/cart` | enhanced cart plugin (wishlists, saved carts) |
+| `@commerce-kit/customers` | plugin |
+| `@commerce-kit/inventory` | plugin |
+| `@commerce-kit/localization` | plugin |
+| `@commerce-kit/reviews` | plugin |
+| `@commerce-kit/digital-products` | plugin |
+| `@commerce-kit/subscriptions` | plugin |
+| `@commerce-kit/orpc` | oRPC procedures + OpenAPI |
+| `@commerce-kit/bullmq` | scheduler adapter (BullMQ + Redis) |
+| `@commerce-kit/inngest` | scheduler adapter (Inngest) |
+| `@commerce-kit/pg-boss` | scheduler adapter (pg-boss + PostgreSQL) |
+
+#### Community packages
+
+| Package | Type |
+|---|---|
+| `@commerce-kit/stripe` | payment adapter |
+| `@commerce-kit/dhl` | fulfillment adapter (carrier shipping) |
+| `@commerce-kit/toyou` | fulfillment adapter (local delivery) |
+| `@commerce-kit/hyperpay` | payout adapter |
+| `@commerce-kit/r2` | storage adapter |
 
 `@commerce-kit/marketplace` is the first-class package that owns the marketplace domain boundary. Related packages such as `@commerce-kit/vendor-payouts` may build on marketplace workflows or optional payout adapters, but they do not replace marketplace as the source of truth for vendor topology.
 
@@ -151,10 +156,6 @@ The package inventory follows the adapter-system contract: provider-neutral adap
 - Major: breaking changes and a written migration guide
 
 Any change to the `CommercePlugin` interface or core database schema is a major version bump.
-
-### Pre-v1 tiers
-
-`0.0.x` alpha → `0.x.0` beta → `1.0.0-rc.N` RC → `1.0.0` stable.
 
 ### Release workflow
 

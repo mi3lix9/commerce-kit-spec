@@ -18,7 +18,7 @@ Commerce Kit separates API behavior from transport. Core logic is pure TypeScrip
 
 The same core logic function is used across all framework adapters. HTTP adapters must not duplicate domain logic.
 
-The canonical framework package inventory lives in [70-packages-and-monorepo.md](./70-packages-and-monorepo.md). `@commerce-kit/orpc` is post-v1 and is not part of the v1 HTTP contract.
+The canonical framework package inventory lives in [70-packages-and-monorepo.md](./70-packages-and-monorepo.md). `@commerce-kit/orpc` (oRPC + OpenAPI) is planned but not part of the current HTTP contract.
 
 ## Canonical route handler contract
 
@@ -54,6 +54,7 @@ PATCH  /products/:id/variants/:variantId
 GET    /orders
 GET    /orders/:id
 POST   /orders/checkout
+POST   /orders/calculate
 POST   /orders/:id/cancel
 POST   /orders/:id/confirm
 POST   /orders/:id/set-paid
@@ -64,7 +65,7 @@ POST   /fulfillment/methods        (only when fulfillment is configured)
 PATCH  /fulfillment/methods/:id    (only when fulfillment is configured)
 ```
 
-Required payment behavior is exposed through core order operations and server-side APIs, not through a separate mandatory public `/payments` REST surface in v1.
+Required payment behavior is exposed through core order operations and server-side APIs, not through a separate mandatory public `/payments` REST surface.
 
 - customer checkout and payment initiation happen through `orders.checkout(...)`
 - order-level workflows such as `orders.cancel(...)`, `orders.setPaid(...)`, and `orders.refund(...)` coordinate payment adapters under the hood

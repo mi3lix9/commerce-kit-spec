@@ -78,6 +78,7 @@ Order transitions are stored as an append-only audit log. `fromStatus` and `toSt
 
 Core defines the base states:
 
+- `cart` _(dormant — only present when server cart persistence is enabled, see [22-cart.md](./22-cart.md))_
 - `draft`
 - `placed`
 - `confirmed`

@@ -17,6 +17,7 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 
 - [Core engine](./10-core-engine.md) — scope, non-goals, principles, simple-store-first boundaries, money rules, and core responsibilities
 - [Data model](./20-data-model.md) — persistence conventions, core simple-store entities, invariants, and the order state machine
+- [Cart](./22-cart.md) — client-side cart, auto-recalculation, `orders.calculate`, and server persistence
 - [Pricing and calculations](./30-pricing-and-calculations.md) — money rules, pricing pipeline, recalculation timing, and audit guarantees
 - [Plugin system](./40-plugin-system.md) — `CommercePlugin`, runtime requirements, hooks, major domain expansion rules, and forbidden behavior
 - [Hooks](./42-hooks.md) — app-level `before`/`after` hooks, `createHook` factory, operation type narrowing, and `runInBackground`
@@ -32,16 +33,17 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 
 1. [Core engine](./10-core-engine.md)
 2. [Data model](./20-data-model.md)
-3. [Pricing and calculations](./30-pricing-and-calculations.md)
-4. [Plugin system](./40-plugin-system.md)
-5. [Hooks](./42-hooks.md)
-6. [Background tasks](./43-background-tasks.md)
-7. [Marketplace plugin](./45-marketplace-plugin.md)
-8. [Adapter system](./50-adapter-system.md)
-9. [Type inference](./60-type-inference.md)
-10. [Packages and monorepo](./70-packages-and-monorepo.md)
-11. [Framework adapters](./80-framework-adapters.md)
-12. [CLI and tooling](./90-cli-and-tooling.md)
+3. [Cart](./22-cart.md)
+4. [Pricing and calculations](./30-pricing-and-calculations.md)
+5. [Plugin system](./40-plugin-system.md)
+6. [Hooks](./42-hooks.md)
+7. [Background tasks](./43-background-tasks.md)
+8. [Marketplace plugin](./45-marketplace-plugin.md)
+9. [Adapter system](./50-adapter-system.md)
+10. [Type inference](./60-type-inference.md)
+11. [Packages and monorepo](./70-packages-and-monorepo.md)
+12. [Framework adapters](./80-framework-adapters.md)
+13. [CLI and tooling](./90-cli-and-tooling.md)
 
 ## Reading rules
 

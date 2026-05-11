@@ -142,13 +142,11 @@ Validates the full setup for local verification and CI.
 
 When marketplace is installed, `check` should also validate the marketplace expansion boundary: required tables exist, vendor ownership backfills are complete enough for the selected workflows, and any unresolved historical attribution gaps are surfaced explicitly.
 
-## Post-v1 commands
+## Planned commands
 
 - `commerce-kit seed`
 - `commerce-kit studio`
 - `commerce-kit types`
-
-These are planned but not part of the v1 CLI contract.
 
 ## Source mapping and boundaries
 
