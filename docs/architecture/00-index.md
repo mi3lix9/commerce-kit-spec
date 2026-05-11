@@ -19,6 +19,7 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 - [Errors](./15-errors.md) — error class hierarchy, core codes, HTTP response shape, server throwing behavior, client result pattern, and plugin error conventions
 - [Data model](./20-data-model.md) — persistence conventions, core simple-store entities, invariants, and the order state machine
 - [Cart](./22-cart.md) — client-side cart, auto-recalculation, `orders.calculate`, and server persistence
+- [Server SDK](./25-server-sdk.md) — `commerce.*` method signatures, inputs, return types, `withContext` binding, and shared conventions
 - [Pricing and calculations](./30-pricing-and-calculations.md) — money rules, pricing pipeline, recalculation timing, and audit guarantees
 - [Plugin system](./40-plugin-system.md) — `CommercePlugin`, runtime requirements, hooks, major domain expansion rules, and forbidden behavior
 - [Hooks](./42-hooks.md) — app-level `before`/`after` hooks, `createHook` factory, operation type narrowing, and `runInBackground`
@@ -36,16 +37,17 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 2. [Errors](./15-errors.md)
 3. [Data model](./20-data-model.md)
 4. [Cart](./22-cart.md)
-5. [Pricing and calculations](./30-pricing-and-calculations.md)
-6. [Plugin system](./40-plugin-system.md)
-7. [Hooks](./42-hooks.md)
-8. [Background tasks](./43-background-tasks.md)
-9. [Marketplace plugin](./45-marketplace-plugin.md)
-10. [Adapter system](./50-adapter-system.md)
-11. [Type inference](./60-type-inference.md)
-12. [Packages and monorepo](./70-packages-and-monorepo.md)
-13. [Framework adapters](./80-framework-adapters.md)
-14. [CLI and tooling](./90-cli-and-tooling.md)
+5. [Server SDK](./25-server-sdk.md)
+6. [Pricing and calculations](./30-pricing-and-calculations.md)
+7. [Plugin system](./40-plugin-system.md)
+8. [Hooks](./42-hooks.md)
+9. [Background tasks](./43-background-tasks.md)
+10. [Marketplace plugin](./45-marketplace-plugin.md)
+11. [Adapter system](./50-adapter-system.md)
+12. [Type inference](./60-type-inference.md)
+13. [Packages and monorepo](./70-packages-and-monorepo.md)
+14. [Framework adapters](./80-framework-adapters.md)
+15. [CLI and tooling](./90-cli-and-tooling.md)
 
 ## Reading rules
 
