@@ -35,6 +35,7 @@ interface CommercePlugin {
   api?: PluginApi
   states?: PluginStates
   client?: PluginClientExtension
+  tasks?: PluginTasks
 
   webhooks?: Record<
     string,
@@ -54,12 +55,13 @@ interface CommercePlugin {
 ### Extension surfaces
 
 1. **`schema`** — adds tables and extends existing entities.
-2. **`hooks`** — lifecycle middleware around core operations.
+2. **`hooks`** — lifecycle before/after hooks around core operations.
 3. **`api`** — adds typed namespaces to `commerce.*`.
 4. **`states`** — adds order states and declared transitions.
 5. **`client`** — extends the generated client surface.
 6. **`webhooks`** — handles verified webhook events only.
-7. **`onInit` / `onTeardown`** — startup and teardown lifecycle.
+7. **`tasks`** — contributes named tasks to `commerce.tasks.run`.
+8. **`onInit` / `onTeardown`** — startup and teardown lifecycle.
 
 `api` is a server-side extension surface first. Any HTTP exposure of plugin APIs is mediated by the core route layer and framework adapters rather than raw plugin-owned router registration.
 
@@ -98,28 +100,39 @@ Commerce Kit uses two dependency layers.
 type RuntimeRequirement =
   | { type: "plugin"; pluginId: string; version?: string }
   | { type: "config"; key: string; value?: unknown; optional?: boolean }
-  | { type: "adapter"; adapter: "payment" | "storage" | "fulfillment" | "payout" }
+  | { type: "adapter"; adapter: "payment" | "storage" | "fulfillment" | "payout" | "scheduler" }
 ```
 
 Use `requires[]` for runtime topology and config guarantees, not for package installation.
 
 ## Hooks
 
+Plugin hooks use the same `before`/`after` model and `createHook` factory as app-level hooks. The full hook API, context shapes, type narrowing, and `runInBackground` utility are defined in [42-hooks.md](./42-hooks.md). This section defines only plugin-specific execution rules.
+
 ### Hook model
 
-- Hooks are middleware-style.
-- Before hooks may abort execution by throwing.
-- After hooks run after the core handler has produced its result, but before the enclosing Commerce Kit operation is finalized.
-- If the triggering operation is transactional, after hooks run inside that same transaction and may still cause the operation to fail and roll back.
-- An after hook for a non-transactional operation runs after the core handler result and may fail the overall operation response because there is no commit boundary to preserve separately.
-- A before hook must either call `next()` or throw.
+- `before` hooks return `void` to proceed, return a modified input to transform it, or throw to abort the operation.
+- `after` hooks return `void` to pass the result through, return a modified result, or throw to fail the operation.
+- Plugin hooks that need post-commit side effects use `ctx.runInBackground` — the same utility available to app-level after hooks.
+
+### Execution order
+
+For each operation:
+
+1. App-level `before` hook
+2. Plugin `before` hooks in declaration order
+3. Operation handler (inside the database transaction)
+4. Plugin `after` hooks in declaration order
+5. App-level `after` hook
+6. Transaction commits
+7. `runInBackground` callbacks execute post-commit
 
 ### Execution rules
 
 - Plugins initialize in declaration order.
-- Required plugins must appear earlier in the plugin array.
-- Hook execution follows declaration order.
-- Teardown runs through the plugin lifecycle contract; plugin authors must not assume unordered shutdown.
+- Required plugins must appear earlier in the plugin list.
+- Hook execution follows plugin declaration order.
+- Teardown runs in reverse declaration order.
 - Before and after hooks participating in a core write operation share that operation's transaction boundary.
 
 Normative transaction boundary rule:
@@ -127,7 +140,7 @@ Normative transaction boundary rule:
 - `after` means after the core handler logic, not after database commit.
 - Commerce Kit must not commit a transactional operation until all participating after hooks complete successfully.
 - Plugin authors must treat after hooks as part of the same atomic operation when a transaction exists.
-- If a plugin needs post-commit or best-effort side effects, that work must be modeled through a separate async job/outbox pattern rather than a transactional after hook.
+- If a plugin needs post-commit or best-effort side effects, use `ctx.runInBackground` rather than performing side effects directly in the after hook.
 
 ## Plugin-owned state extensions
 
@@ -188,6 +201,34 @@ Plugin webhook handlers are event consumers only:
 - A webhook request returns HTTP 200 only after adapter verification, core event handling, and plugin dispatch complete successfully.
 - If plugin dispatch fails after verification, Commerce Kit returns a non-2xx error so the upstream provider or operator-visible retry flow can retry according to adapter/provider delivery behavior.
 - Retry ownership for webhook delivery remains with the upstream provider and the adapter-facing webhook endpoint contract; plugins do not schedule transport-level retries themselves.
+
+## Plugin tasks
+
+Plugins contribute named tasks through `tasks`. Registered tasks become valid keys on `commerce.tasks.run` and are inferred as part of the typed task key union.
+
+```ts
+type PluginTasks = {
+  [key: string]: (ctx: TaskContext, opts?: Record<string, unknown>) => Promise<void>
+}
+```
+
+Example:
+
+```ts
+const couponsPlugin = definePlugin({
+  id: 'coupons',
+  tasks: {
+    'coupons:expire': async (ctx, opts) => {
+      // expire all coupons whose endDate is in the past
+    },
+  },
+})
+
+// available after plugin is installed:
+await commerce.tasks.run('coupons:expire')
+```
+
+Task keys must be namespaced with the plugin id to prevent collisions. Plugins may also schedule deferred tasks inside `after` hooks when a scheduler adapter is active — see [43-background-tasks.md](./43-background-tasks.md).
 
 ## Forbidden behavior
 

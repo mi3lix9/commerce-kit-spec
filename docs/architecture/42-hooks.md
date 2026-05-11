@@ -4,19 +4,18 @@
 
 Define the app-level hook system for Commerce Kit: how developers register `before` and `after` middleware at `createCommerce()` time, the context shape each hook receives, type narrowing by operation, and the `runInBackground` utility for post-commit side effects.
 
-Plugin-level hooks follow the same `before`/`after` model but use a `next()` chain because multiple plugins compose in sequence. That contract is defined in [40-plugin-system.md](./40-plugin-system.md). This document defines the app-level surface and the shared context shapes both layers use.
+Plugin-level hooks follow the same `before`/`after` model and use the same `createHook` factory. That contract is defined in [40-plugin-system.md](./40-plugin-system.md). This document defines the app-level surface and the shared context shapes both layers use.
 
 ## Non-goals
 
-- Plugin-level hook chaining and `next()` semantics — see [40-plugin-system.md](./40-plugin-system.md)
 - Incoming webhook verification from payment or fulfillment providers — see [80-framework-adapters.md](./80-framework-adapters.md)
-- Durable background job queues or outbox patterns — out of scope for v1
+- Durable background job queues — see [43-background-tasks.md](./43-background-tasks.md)
 
 ## Core decisions
 
 - App-level hooks are registered at `createCommerce()` time via a `hooks` config key.
-- Hooks are `before` and `after` — not a single `next()`-based middleware chain.
-- `before` hooks run before plugin before-hooks and the operation. `after` hooks run after the operation and plugin after-hooks.
+- Hooks are `before` and `after` — not a single middleware chain.
+- App-level `before` runs first (before plugin before-hooks). App-level `after` runs last (after plugin after-hooks).
 - Checking `ctx.operation` narrows `ctx.input` and `ctx.result` to the correct types for that operation.
 - `after` hooks provide `ctx.runInBackground()` for scheduling post-commit work that does not block the response.
 - App-level hooks and plugin-level hooks use the same `createHook` factory and the same context shapes.
@@ -27,8 +26,10 @@ Plugin-level hooks follow the same `before`/`after` model but use a `next()` cha
 import { createCommerce, createHook } from 'commerce-kit'
 
 const commerce = createCommerce({
-  database: drizzleAdapter({ db }),
-  payments: [moyasarPayments(...)],
+  database: drizzleAdapter(db, { schema }),
+  payment: {
+    moyasar: moyasar({ secretKey: env.MOYASAR_SECRET }),
+  },
 
   hooks: {
     before: createHook(async (ctx) => {
@@ -192,7 +193,7 @@ fulfillment:createFulfillment
 
 ## Plugin-level hooks
 
-Plugins use the same `createHook` factory and receive the same context shapes. The difference is that plugin before-hooks must call `next()` or throw, because multiple plugins compose into a chain.
+Plugins use the same `createHook` factory and receive the same context shapes. The same return-value semantics apply: return `void` to proceed, return a modified input/result to transform, throw to abort.
 
 ```ts
 const auditPlugin = definePlugin({
@@ -225,12 +226,11 @@ createCommerce({
 
 ## Cross-links
 
-- Plugin hook chaining and `next()` contract: [40-plugin-system.md](./40-plugin-system.md)
+- Plugin hook contract and execution rules: [40-plugin-system.md](./40-plugin-system.md)
 - `RequestContext` shape and `resolveContext`: [80-framework-adapters.md](./80-framework-adapters.md)
 - Type inference for plugin-contributed operations: [60-type-inference.md](./60-type-inference.md)
 
 ## Future RFCs
 
-- Additional operation keys from post-v1 core domains
 - Ordered `runInBackground` with dependency between background callbacks
 - Retry policy for background callbacks

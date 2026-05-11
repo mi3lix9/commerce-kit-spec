@@ -53,12 +53,16 @@ Examples:
 The scheduler adapter is optional. When not configured, deferred task features are dormant: no schema, no queuing, no task scheduling happens automatically.
 
 ```ts
-import { bullmqScheduler } from '@commerce-kit/bullmq'
+import { bullmq } from '@commerce-kit/bullmq'
 
 const commerce = createCommerce({
-  database: drizzleAdapter({ db }),
-  payments: [moyasarPayments(...)],
-  scheduler: bullmqScheduler({ connection: redis }),
+  database: drizzleAdapter(db, { schema }),
+  payment: {
+    moyasar: moyasar({ secretKey: env.MOYASAR_SECRET }),
+  },
+  scheduler: {
+    jobs: bullmq({ redis: env.REDIS_URL }),
+  },
 })
 ```
 
@@ -66,7 +70,6 @@ const commerce = createCommerce({
 
 ```ts
 interface SchedulerAdapter {
-  id: string
   schedule(task: ScheduledTask): Promise<void>
   cancel(taskId: string): Promise<void>
 }
@@ -102,7 +105,9 @@ Cancels an order if it has not been confirmed within the configured window after
 
 ```ts
 createCommerce({
-  scheduler: bullmqScheduler({ connection: redis }),
+  scheduler: {
+    jobs: bullmq({ redis: env.REDIS_URL }),
+  },
   tasks: {
     'orders:auto-cancel': { after: '30m' },
   },
