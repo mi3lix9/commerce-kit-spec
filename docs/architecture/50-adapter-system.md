@@ -20,6 +20,43 @@ Plugin extension rules live in [40-plugin-system.md](./40-plugin-system.md). Com
 - Fulfillment, storage, and payout follow an optional dormant activation model.
 - Dormant activation is owned by `createCommerce()`, not by plugins.
 
+## Config shape
+
+All adapter slots use objects. Object keys are the adapter IDs and are inferred as literal types by TypeScript, enabling compile-time narrowing (e.g. the `adapterId` field at checkout is typed as the union of registered payment adapter keys).
+
+```ts
+export const commerce = createCommerce({
+  database: drizzleAdapter(db, { schema }),
+
+  payment: {
+    moyasar: moyasar({ secretKey: env.MOYASAR_SECRET }),
+    tabby: tabby({ apiKey: env.TABBY_API_KEY }),
+  },
+
+  fulfillment: {
+    shipping: shippo({ apiKey: env.SHIPPO_API_KEY }),
+    riyadhDelivery: localDelivery(),
+    pickup: storePickup(),
+  },
+
+  storage: {
+    media: r2({ bucket: env.R2_BUCKET, accountId: env.CF_ACCOUNT_ID }),
+  },
+
+  payout: {
+    hyperpay: hyperpay({ apiKey: env.HYPERPAY_API_KEY }),
+  },
+
+  scheduler: {
+    jobs: bullmq({ redis: env.REDIS_URL }),
+  },
+
+  plugins: [coupons(), marketplace()],
+})
+```
+
+`database` is a single required adapter (not an object) because only one database adapter is active at a time. All optional adapter slots (`payment`, `fulfillment`, `storage`, `payout`, `scheduler`) accept objects and are dormant when omitted.
+
 ## Packaging model
 
 ### Bundled in `commerce-kit`
@@ -64,11 +101,10 @@ Normative rules:
 
 ## Payment adapter
 
-Payment is a core required interface. Multiple payment adapters may be registered at once and routed by `paymentAdapterId`.
+Payment is a core required interface. Multiple payment adapters may be registered at once, keyed by their config key, and routed by that key at checkout.
 
 ```ts
 interface PaymentAdapter {
-  id: string
   capabilities: PaymentCapabilities
   authorize(ctx: AuthorizeContext): Promise<AuthorizeResult>
   capture(providerReference: string, amount: number): Promise<CaptureResult>
@@ -82,6 +118,30 @@ interface PaymentAdapter {
 
 Not every provider supports every payment flow; capabilities are explicit.
 
+### Multiple payment adapters
+
+```ts
+createCommerce({
+  payment: {
+    moyasar: moyasar({ secretKey: env.MOYASAR_SECRET }),
+    tabby: tabby({ apiKey: env.TABBY_API_KEY }),
+  },
+})
+```
+
+The config key is the adapter ID. TypeScript infers the literal union `'moyasar' | 'tabby'` from the object keys, so passing an unknown `adapterId` at checkout is a compile error.
+
+At checkout, the caller selects the adapter by key:
+
+```ts
+await commerce.orders.checkout({
+  items: cart.items,
+  payment: { adapterId: 'moyasar' },
+})
+```
+
+Webhook URLs follow the same key convention: `/webhooks/payment/moyasar`, `/webhooks/payment/tabby`.
+
 The payment persistence model distinguishes between:
 
 - transaction/operation references used by adapter methods such as `capture`, `refund`, and `cancel`
@@ -93,7 +153,7 @@ Payment adapter methods are core operational APIs. Their HTTP exposure, if any, 
 
 ## Dormant activation model
 
-Fulfillment, storage, and payout interfaces are defined in core but are optional. If a given interface has no registered provider adapter, it is dormant.
+Fulfillment, storage, payout, and scheduler interfaces are defined in core but are optional. If a given interface has no registered provider adapter, it is dormant.
 
 For a dormant interface:
 
@@ -111,13 +171,12 @@ The compile-time removal of dormant surface area is specified in [60-type-infere
 
 ## Fulfillment adapter
 
-Fulfillment is optional and dormant until configured via `createCommerce({ fulfillment: [...] })`.
+Fulfillment is optional and dormant until configured via `createCommerce({ fulfillment: { ... } })`.
 
 Fulfillment is the public abstraction for carrier shipping, local delivery, pickup, and digital delivery. The public API is unified even when provider adapters have different capabilities.
 
 ```ts
 interface FulfillmentAdapter {
-  id: string
   types: FulfillmentMethodType[]
   capabilities: FulfillmentCapabilities
 
@@ -142,26 +201,16 @@ interface FulfillmentCapabilities {
 }
 ```
 
-Config stays intentionally simple:
+Config uses an object. The key is the adapter ID, inferred as a literal type. Multiple instances of the same adapter factory are supported naturally:
 
 ```ts
 createCommerce({
-  fulfillment: [
-    localDelivery(),
-    shippo(),
-    storePickup(),
-  ],
-})
-```
-
-Adapters have default IDs. Advanced users can override IDs only when multiple instances of the same adapter are needed:
-
-```ts
-createCommerce({
-  fulfillment: [
-    localDelivery({ id: "riyadhDelivery" }),
-    localDelivery({ id: "jeddahDelivery" }),
-  ],
+  fulfillment: {
+    shipping: shippo({ apiKey: env.SHIPPO_API_KEY }),
+    riyadhDelivery: localDelivery(),
+    jeddahDelivery: localDelivery(),
+    pickup: storePickup(),
+  },
 })
 ```
 
@@ -208,8 +257,39 @@ Advanced plugins may add pricing strategies later, but normal users should not n
 
 Storage is an optional interface and follows the same dormant activation pattern.
 
-- Storage activates only when a storage provider is registered.
-- The storage adapter contract is intentionally left minimal in the current architecture set because no v1 first-party storage package is defined.
+```ts
+interface StorageAdapter {
+  upload(ctx: UploadContext): Promise<UploadResult>
+  delete(key: string): Promise<void>
+  getUrl(key: string): Promise<string>
+  getSignedUrl?(key: string, expiresIn: number): Promise<string>
+}
+
+type UploadContext = {
+  key: string
+  body: Buffer | ReadableStream
+  contentType: string
+  metadata?: Record<string, string>
+}
+
+type UploadResult = {
+  key: string
+  url: string
+  size: number
+}
+```
+
+Config:
+
+```ts
+createCommerce({
+  storage: {
+    media: r2({ bucket: env.R2_BUCKET, accountId: env.CF_ACCOUNT_ID }),
+  },
+})
+```
+
+Storage is used by core for product media and by the optional digital products plugin for delivery assets. `getSignedUrl` is optional and only required when the adapter needs time-limited access URLs (e.g. private digital product downloads).
 
 ## Payout adapter
 
@@ -219,13 +299,22 @@ The payout interface exists so marketplace-oriented plugins can request provider
 
 ```ts
 interface PayoutAdapter {
-  id: string
   capabilities: PayoutCapabilities
   createPayout(ctx: CreatePayoutContext): Promise<CreatePayoutResult>
   cancelPayout(payoutReference: string): Promise<CancelPayoutResult>
   getPayoutStatus(payoutReference: string): Promise<PayoutStatus>
   verifyWebhook(payload: unknown, signature: string): Promise<PayoutWebhookEvent>
 }
+```
+
+Config:
+
+```ts
+createCommerce({
+  payout: {
+    hyperpay: hyperpay({ apiKey: env.HYPERPAY_API_KEY }),
+  },
+})
 ```
 
 Normative rules:
@@ -240,7 +329,6 @@ The scheduler adapter is optional and follows the same dormant activation patter
 
 ```ts
 interface SchedulerAdapter {
-  id: string
   schedule(task: ScheduledTask): Promise<void>
   cancel(taskId: string): Promise<void>
 }
@@ -252,6 +340,16 @@ type ScheduledTask = {
   runAt: Date
   retries?: number
 }
+```
+
+Config:
+
+```ts
+createCommerce({
+  scheduler: {
+    jobs: bullmq({ redis: env.REDIS_URL }),
+  },
+})
 ```
 
 Normative rules:
