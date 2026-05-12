@@ -37,6 +37,7 @@ Core v1 always includes:
 - the hook system (keyed `on` handlers)
 - the plugin system (`plugin()`, `table()`, column helpers)
 - the tenancy contract (column helpers, `support` block, hierarchical reads)
+- the calculation engine (step registry, pipeline runner, resolver hook)
 
 Core v1 assumes a simple-store baseline. Capabilities like multi-merchant ownership, multi-branch operation, marketplace checkout, fulfillment providers, and scheduled tasks are dormant unless declared in `createCommerce()`.
 
@@ -49,6 +50,7 @@ Core uses dormant activation uniformly across optional capabilities:
 | Tenancy (`merchants`) | `tenancy: { merchants: true }` | no `merchants` table, no `merchant()` column injection |
 | Tenancy (`branches`) | `tenancy: { branches: true }` | no `branches` table, no `branch()` column injection |
 | Marketplace checkout | `tenancy: { checkout: 'split' }` | no `orderGroup` table, single-merchant carts enforced |
+| Runtime pipelines | `calculation: { runtime: true }` | no `merchantCalculationPipelines` table, `commerce.calculation.*` absent |
 | Server cart persistence | `cart: { ... }` adapter config | no cart table, `commerce.cart` namespace absent |
 | Fulfillment | at least one fulfillment adapter | no fulfillment schema, no `commerce.fulfillment.*` |
 | Payout | at least one payout adapter | no payout schema, no related SDK surface |

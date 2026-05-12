@@ -66,40 +66,31 @@ Totals are not recalculated:
 
 ## Pricing pipeline
 
-The calculation pipeline is:
+The calculation pipeline is a named-step pipeline owned by the calculation engine. Pipelines are `string[]` of step IDs and can be set at app config time or stored per-merchant for runtime mutation. Step authoring, registration, resolution, and lifecycle live in [35-calculation-engine.md](./35-calculation-engine.md).
 
-1. Sum line items into subtotal
-2. Apply `discount` rules to line items/order amounts
-3. Add fulfillment charges from the selected fulfillment method
-4. Apply pre-tax `service_charge` and `custom` rules
-5. Apply `tax` rules to the configured taxable base
-6. Apply post-tax `service_charge` and `custom` rules
-7. Persist final total
+This document owns only the money invariants the pipeline must respect:
 
-Fulfillment-charge rules:
+- Every step's emitted amounts are integer minor units.
+- Steps may not reimplement rounding — the engine applies the configured rounding strategy in finalization.
+- Allocation of order-level adjustments across line items is a fixed core algorithm and may not be overridden by steps.
 
-- fulfillment fees enter the pipeline after discounts by default
-- fulfillment charges are not discountable unless an installed pricing rule explicitly targets them
-- fulfillment charges are taxable only when the active tax rules include them in the taxable base
-- `fulfillmentTotal` remains persisted as an order field when fulfillment participates in the pricing pipeline
-
-Tax defaults to the discounted taxable base. A rule may explicitly choose the gross pre-discount taxable base only for jurisdictions that require tax before discounts are applied. In this document, `pre_tax` means "before tax is applied in the pipeline," not "before discounts necessarily run."
+The four canonical step kinds — `discount`, `serviceCharge`, `tax`, `fulfillment` — are recognized for derived totals (`discountTotal`, `serviceChargeTotal`, etc.). Steps with a custom `kind` participate in the order's `adjustments` audit list but do not contribute to a canonical total column.
 
 ## Audit guarantees
 
-- Every calculation step is auditable through `pricingRuleExecution` records when a pricing plugin or deployment enables that persistence surface.
-- Rule configuration is snapshotted at execution time.
-- Historical orders keep the totals and rule snapshots produced at the time of execution.
-
-`pricingRuleExecution` is not part of the minimal core entity list in `20-data-model.md`. Its ownership boundary is the pricing system and any installed pricing-rule plugins that choose to persist execution traces. Core owns the audit requirement for applied totals and snapshots; the detailed execution-record persistence surface belongs to the pricing boundary rather than to unrelated domains.
+- Every calculation produces an `adjustments: Adjustment[]` audit record persisted on `order`. This is the canonical source of truth for how a total was derived.
+- Each `Adjustment` records its `source` (the step ID that emitted it), `kind`, `amount`, and `appliesTo`.
+- Derived totals (`subtotal`, `discountTotal`, `serviceChargeTotal`, `taxTotal`, `fulfillmentTotal`, `total`) are stored as columns for query convenience, but the adjustments array is the authoritative trace.
+- Rule configuration is snapshotted into adjustment `metadata` at the time the step runs, so historical orders remain interpretable after rule edits.
 
 ## Cross-links
 
-- Core engine boundaries live in [10-core-engine.md](./10-core-engine.md)
-- Persistence invariants live in [20-data-model.md](./20-data-model.md)
-- Plugin-owned pricing extensions belong in [40-plugin-system.md](./40-plugin-system.md)
+- Calculation engine, named steps, runtime overrides: [35-calculation-engine.md](./35-calculation-engine.md)
+- Core engine boundaries: [10-core-engine.md](./10-core-engine.md)
+- Persistence invariants: [20-data-model.md](./20-data-model.md)
+- Plugin-contributed steps: [40-plugin-system.md](./40-plugin-system.md)
 
 ## Future RFCs
 
 - Multi-currency conversion policy beyond the current `Money` contract
-- Additional calculation audit surfaces beyond `pricingRuleExecution`
+- Adjustment indexing for reporting workloads

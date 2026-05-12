@@ -634,6 +634,29 @@ commerce.fulfillment.createLabel({ orderId: string }): Promise<FulfillmentLabel>
 
 ---
 
+## `calculation`
+
+`calculation` exists only when `calculation.runtime: true` is set in `createCommerce()`. See [35-calculation-engine.md](./35-calculation-engine.md).
+
+```ts
+commerce.calculation.getPipeline({
+  merchantId: string
+}): Promise<{ pipeline: string[] } | null>
+
+commerce.calculation.setPipeline({
+  merchantId: string
+  pipeline: string[]
+}): Promise<void>
+
+commerce.calculation.resetPipeline({
+  merchantId: string
+}): Promise<void>
+```
+
+Pipelines are validated against the step registry at write time — unknown step IDs throw `CommerceValidationError`.
+
+---
+
 ## `tasks`
 
 See [43-background-tasks.md](./43-background-tasks.md) for the full tasks API.

@@ -77,6 +77,7 @@ type Plugin = {
 
   operations?: PluginOperations     // typed namespace additions to commerce.*
   on?: PluginHandlers               // keyed lifecycle handlers
+  calculation?: PluginCalculation   // named pricing pipeline steps
 
   tasks?: PluginTasks               // named tasks for commerce.tasks.run
   webhooks?: PluginWebhooks         // verified-event handlers
@@ -287,6 +288,29 @@ For each operation:
 7. `runInBackground` callbacks execute post-commit
 
 Wildcards run alongside exact matches in declaration order — there is no priority between specific and wildcard handlers within a plugin.
+
+## `calculation`
+
+Plugins contribute named calculation steps that core's pricing pipeline can reference by ID. Step authoring rules and the full `StepContext` shape live in [35-calculation-engine.md](./35-calculation-engine.md).
+
+```ts
+plugin('pricing-rules', {
+  calculation: {
+    steps: {
+      'pricing-rules:discounts': {
+        type: 'discount',
+        handler: async ({ snapshot, emit, commerce, request }) => { /* ... */ },
+      },
+      'pricing-rules:taxes': {
+        type: 'tax',
+        handler: async ({ snapshot, emit }) => { /* ... */ },
+      },
+    },
+  },
+})
+```
+
+Step IDs must be unique across the installed plugin set. The convention is `<plugin-id>:<name>`. Pipelines (in app config or stored per-merchant) reference these IDs as plain strings; the engine resolves them through the registry at calculation time.
 
 ## `tasks`
 

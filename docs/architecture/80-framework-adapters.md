@@ -119,6 +119,14 @@ GET    /order-groups/:id
 GET    /order-groups/:id/orders
 ```
 
+When `calculation.runtime: true`, per-merchant pipeline routes mount:
+
+```text
+GET    /merchants/:id/calculation-pipeline
+PUT    /merchants/:id/calculation-pipeline
+DELETE /merchants/:id/calculation-pipeline
+```
+
 ## Input validation
 
 Commerce Kit validates request input internally. Transport-shape validation and parsing may use shared schemas such as Zod, and invalid input returns HTTP 400 with a structured validation payload.
