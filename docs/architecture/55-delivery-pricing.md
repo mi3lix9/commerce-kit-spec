@@ -26,35 +26,30 @@ Strategies are orthogonal to delivery adapters ([54-delivery-adapters.md](./54-d
 
 ## Declaring strategies
 
-Strategies are declared once at boot. The `deliveryPricing: []` slot accepts both built-in and custom strategies through the same shape:
+Each strategy is a single value with two callable surfaces:
+
+- Call it as a function — `distanceBased({...})` — to produce a tagged settings value for `pricing` at method-create time.
+- Pass the value itself — `distanceBased` — into `deliveryPricing: []` to register the calculator.
+
+One export, both paths:
 
 ```ts
 import {
-  distanceBasedStrategy,
-  flatStrategy,
-  freeStrategy,
+  distanceBased,
+  flat,
+  free,
 } from '@commerce-kit/delivery-pricing-strategies'
 
 createCommerce({
   ...,
   delivery: [leajlakDelivery({ apiKey: env.LEAJLAK })],
-  deliveryPricing: [
-    distanceBasedStrategy(),
-    flatStrategy(),
-    freeStrategy(),
-  ],
+  deliveryPricing: [distanceBased, flat, free],   // pass the strategy itself
 })
-```
-
-At method-create time, the matching factory carries the typed settings:
-
-```ts
-import { distanceBased, flat } from '@commerce-kit/delivery-pricing-strategies'
 
 await commerce.delivery.methods.create({
   adapter: 'leajlak',
   name: 'Riyadh Express',
-  pricing: distanceBased({
+  pricing: distanceBased({                         // call the strategy
     basePrice: money(1700, 'SAR'),
     baseDistanceMeters: 3000,
     perKm: money(100, 'SAR'),
@@ -62,7 +57,7 @@ await commerce.delivery.methods.create({
 })
 ```
 
-Each strategy package exports two paired items: the `*Strategy()` registration (for the config slot) and the lower-case factory (for the call site). They share a tag string that core uses to link the call site to its calculator.
+There's only one identifier to import per strategy, and the registration / call-site pairing is structural — no separate tag string to keep in sync.
 
 Strategies that need a `DistanceProvider` accept it via dependency injection at the factory call site:
 
@@ -82,17 +77,14 @@ Apps that always use the same distance provider typically wrap this in a small h
 
 ## Custom strategies
 
-Custom strategies use the same shape as built-ins — register at boot, use at call site:
+Custom strategies are the same single-export shape as built-ins:
 
 ```ts
-import { vipTierStrategy, vipTier } from './pricing/vip-tier'
+import { vipTier } from './pricing/vip-tier'
 
 createCommerce({
   ...,
-  deliveryPricing: [
-    distanceBasedStrategy(),
-    vipTierStrategy(),               // custom
-  ],
+  deliveryPricing: [distanceBased, vipTier],
 })
 
 await commerce.delivery.methods.create({
@@ -265,37 +257,36 @@ Picks the first matching zone. Throws `no_zone_match` if no zone matches the del
 
 ### Authoring a custom strategy
 
-A strategy package exports two paired items: the registration (for `deliveryPricing: []`) and the call-site factory:
+Strategies are built with `defineStrategy`, which produces a single value that's both callable (for the call site) and registerable (for the config slot):
 
 ```ts
-// strategy author's package
-export function vipTierStrategy(): DeliveryPricingStrategy<VipTierSettings, 'app:vip-tier'> {
-  return {
-    tag: 'app:vip-tier',
-    validateSettings: (s) => { /* throw on misconfig */ },
-    calculate: async ({ settings, subtotal }) => {
-      return { amount: /* custom math */ }
-    },
-  }
-}
+import { defineStrategy, money } from 'commerce-kit'
 
-export function vipTier(settings: VipTierSettings): PricingValue<VipTierSettings, 'app:vip-tier'> {
-  return { strategy: 'app:vip-tier', ...settings }
-}
+export const vipTier = defineStrategy({
+  tag: 'app:vip-tier',
+  settings: z.object({ tier: z.enum(['gold', 'platinum']) }),
+  calculate: async ({ settings, subtotal }) => {
+    return { amount: settings.tier === 'gold' ? money(500, 'SAR') : money(0, 'SAR') }
+  },
+})
 ```
+
+The `vipTier` value:
+- When called — `vipTier({ tier: 'gold' })` — returns the tagged settings value, type-checked by the `settings` schema.
+- When passed into `deliveryPricing: [...]` — registers the calculator.
 
 App wires it in like any built-in:
 
 ```ts
 createCommerce({
-  deliveryPricing: [vipTierStrategy()],
+  deliveryPricing: [distanceBased, vipTier],
 })
 
-// then at method-create:
+// at method-create:
 pricing: vipTier({ tier: 'gold' })
 ```
 
-The two are kept paired by their shared tag string; core's type machinery links the factory's discriminant to the registered calculator.
+The two callable surfaces share the same `tag` internally; core's type machinery links the factory call's discriminant to the registered calculator. No separate exports, no tag string to keep in sync.
 
 ## `DistanceProvider` interface
 
@@ -331,6 +322,10 @@ distanceBased({
 Different strategies can use different providers in the same app. A merchant in a remote area without Google Maps coverage could use a haversine fallback while urban merchants use Google Maps.
 
 Distance providers handle their own caching internally if needed. Core does not provide a caching layer.
+
+### Request-scoped deduplication
+
+`commerce.delivery.methods.quote(...)` runs every active method's strategy. If a merchant has 8 distance-based methods all targeting the same origin (the branch) and destination (the customer's address), naive execution makes 8 distance-provider calls. Core dedupes within a single `quote` invocation: identical `{origin, destination}` lookups against the same `DistanceProvider` resolve from a per-call memo. This makes the common case one call regardless of method count. Cross-request caching remains the provider's responsibility.
 
 ## How a method picks a strategy
 
@@ -430,7 +425,7 @@ This means platform operators choose which strategies are available to merchants
 | Package | Owns |
 |---|---|
 | `commerce-kit` (core) | `DeliveryPricingStrategy` interface, the `deliveryPricing: []` config slot, the strategy registry, the `core:delivery-fee` calculation step, startup validation |
-| `@commerce-kit/delivery-pricing-strategies` | Built-in registrations + factories (`free`/`freeStrategy`, `flat`/`flatStrategy`, `distanceBased`/`distanceBasedStrategy`, etc.) + `DistanceProvider` interface + ready-made distance providers as sub-modules |
+| `@commerce-kit/delivery-pricing-strategies` | Built-in strategies (`free`, `flat`, `distanceBased`, `tieredDistance`, `weight`, `zone`) — each a single `defineStrategy(...)` export usable both as registration and as call-site factory. Plus `DistanceProvider` interface + ready-made distance providers as sub-modules. |
 
 Core ships zero algorithms. Even the trivial `free` strategy lives in the strategies package — uniform contract, no special-casing.
 

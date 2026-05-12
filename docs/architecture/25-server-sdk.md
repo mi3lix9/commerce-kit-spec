@@ -772,11 +772,11 @@ Explicit dispatch. Usually triggered automatically by core on `orders:confirmed`
 ```ts
 commerce.delivery.create({
   orderId: string
-  methodId?: string           // overrides order's deliveryMethodId; used to re-dispatch with a different method
+  methodId?: string           // overrides order's deliveryMethodId
 }): Promise<Delivery>
 ```
 
-When `methodId` is provided, the order's `deliveryMethodId` is updated and the new method's adapter handles the dispatch. This is the supported path for retrying a failed delivery with a different provider.
+By default the operation reads the order's `deliveryMethodId` and dispatches via that method's adapter. Passing `methodId` updates the order's `deliveryMethodId` first, then dispatches — one round trip for the re-dispatch case. The order's method update and the dispatch run inside the same transaction; if dispatch fails, the method change rolls back.
 
 ### `delivery.cancel`
 
