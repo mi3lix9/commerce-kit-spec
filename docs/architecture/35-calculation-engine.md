@@ -274,25 +274,11 @@ This is the only place where engine math differs based on adjustment metadata. A
 
 If no plugin registers calculation steps and no pipeline is configured:
 
-- The pipeline is empty (unless fulfillment is active — see below).
+- The pipeline is empty.
 - No adjustments are emitted.
 - `total = subtotal`.
 
 This is a valid configuration for a zero-tax, zero-discount store and requires no install or config.
-
-## Built-in steps
-
-Core registers a small set of steps automatically when certain features are active. These steps appear in the default pipeline before any plugin steps register.
-
-### `core:fulfillment-fee`
-
-Registered when at least one fulfillment adapter is configured. Calls `adapter.calculateFee(ctx)` on the order's chosen method and emits a `fulfillment` adjustment with the result. See [50-adapter-system.md](./50-adapter-system.md) for the adapter contract.
-
-Behavior:
-- If no `fulfillmentMethodId` is on the order, emits nothing.
-- If the method's adapter throws (e.g., out-of-zone, below min-order-amount), the calculation operation propagates the error.
-
-To opt out, omit `'core:fulfillment-fee'` from the pipeline or replace it with a plugin step.
 
 ## Cross-links
 

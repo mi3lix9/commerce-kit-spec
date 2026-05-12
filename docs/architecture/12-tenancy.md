@@ -310,12 +310,9 @@ When `tenancy.branches: true`, core also materializes a `branches` table:
 ```ts
 branch = {
   id: string
-  merchantId: string             // every branch belongs to a merchant
+  merchantId: string   // every branch belongs to a merchant
   name: string
   slug: string
-  address: Address               // required — drives delivery and fulfillment routing
-  coordinates?: Coordinates      // required by adapters that need geolocation
-  timezone: string               // IANA TZ identifier
   status: 'active' | 'archived'
   metadata: Record<string, unknown>
   createdAt: Date

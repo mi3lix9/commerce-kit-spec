@@ -287,75 +287,34 @@ When fulfillment is active:
 
 ### Fulfillment method pricing
 
-Pricing configurations are data the adapter interprets — core does not implement fee algorithms. Five shapes ship in core:
+Core includes common fulfillment pricing strategies by default:
 
 ```ts
 type FulfillmentPricing =
   | { type: "free" }
-  | { type: "flat"; amount: Money }
-  | { type: "weight"; tiers: Array<{ maxWeightG: number; amount: Money }> }
-  | { type: "zone"; zones: Array<{ id: string; amount: Money }> }
-  | { type: "dynamic"; settings?: Record<string, unknown> }
-
-type FulfillmentMethod = {
-  // ...
-  pricing: FulfillmentPricing
-  minOrderAmount?: Money            // optional min-spend guard
-}
+  | { type: "flat"; price: Money }
+  | { type: "threshold"; price: Money; freeAfter: Money }
+  | { type: "distance"; minimum: Money; perKm: Money }
+  | { type: "adapter" }
 ```
 
-| Type | Adapter interprets as |
-|---|---|
-| `free` | Always zero fee. |
-| `flat` | Always `pricing.amount`. |
-| `weight` | Sum item weights; pick the first tier whose `maxWeightG` is not exceeded. |
-| `zone` | Resolve the order's zone (via address, branch, or `fulfillmentTypeData`); look up the matching entry. |
-| `dynamic` | Adapter computes freely. `settings` is opaque adapter-specific config (e.g., perKm rates, base distance, provider API keys). |
-
-Core does not ship Google Maps, distance math, or any specific algorithm. The `dynamic` type is the escape hatch for whatever calculation the adapter performs (distance, real-time provider quote, complex zone rules). Even `flat` and `free` are interpreted by the adapter via `calculateFee` — core does not reach into the pricing config itself.
-
-### Fulfillment fee calculation
-
-Every fulfillment adapter must implement `calculateFee`. The pricing pipeline's built-in `core:fulfillment-fee` step calls it once per order to emit the fulfillment adjustment.
+Example runtime method:
 
 ```ts
-interface FulfillmentAdapter {
-  // ...
-  calculateFee(ctx: CalculateFeeContext): Promise<{ amount: Money; metadata?: Record<string, unknown> }>
-}
-
-type CalculateFeeContext = {
-  method: FulfillmentMethod          // includes pricing config
-  items: PricingItem[]
-  subtotal: Money
-  customerAddress?: Address          // from fulfillmentTypeData when the type requires it
-  branchAddress?: Address            // origin (present when tenancy.branches is on)
-  fulfillmentTypeData: unknown       // typed payload from the order
-  request: RequestContext
-}
+await client.fulfillment.methods.create({
+  adapter: "localDelivery",
+  type: "delivery",
+  name: "Riyadh Delivery",
+  enabled: true,
+  pricing: {
+    type: "distance",
+    minimum: { amount: 1700, currency: "SAR" },
+    perKm: { amount: 100, currency: "SAR" },
+  },
+})
 ```
 
-Adapter responsibilities:
-
-- Read `ctx.method.pricing` and interpret it. Even trivial cases (`free`, `flat`) are handled in `calculateFee` — core never branches on `pricing.type`.
-- Apply the method's `minOrderAmount` guard if defined. If `subtotal < minOrderAmount`, throw `CommerceValidationError('below_min_amount')`.
-- For unservable contexts (out-of-zone delivery, no drivers, expired API quota), throw a descriptive `CommerceValidationError`. The calling operation surfaces it to the customer.
-- Return `{ amount, metadata? }`. `metadata` is persisted on the emitted adjustment for audit (distance, duration, provider quote ID, etc.).
-
-Caching is not provided by core. Adapters that call slow external APIs (mapping services, provider quotes) implement their own caching as needed.
-
-### Built-in pricing step: `core:fulfillment-fee`
-
-When fulfillment is active, core registers `core:fulfillment-fee` as a calculation step. The default app-level pipeline includes it. The step:
-
-1. Reads the order's `fulfillmentMethodId`. If none, emits nothing.
-2. Resolves the method and its adapter.
-3. Builds `CalculateFeeContext` from the current calculation state plus the customer address (from `fulfillmentTypeData`) and branch address (from the tenancy context).
-4. Calls `adapter.calculateFee(ctx)`.
-5. Emits `{ kind: 'fulfillment', amount, source: 'core:fulfillment-fee', metadata }`.
-6. If the adapter throws, the surrounding `orders.calculate` / `orders.checkout` operation fails with that error.
-
-Plugins may replace this step by registering a same-named or differently-named step in the pipeline (see [35-calculation-engine.md](./35-calculation-engine.md)).
+Advanced plugins may add pricing strategies later, but normal users should not need to configure a strategy registry.
 
 ## Storage adapter
 
