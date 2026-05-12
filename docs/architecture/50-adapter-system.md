@@ -110,16 +110,18 @@ interface PaymentAdapter {
   capture(providerReference: string, amount: number): Promise<CaptureResult>
   refund(providerReference: string, amount: number, reason?: string): Promise<RefundResult>
   cancel(providerReference: string): Promise<CancelResult>
-  verifyWebhook(payload: unknown, signature: string): Promise<WebhookEvent>
-  supportsOffSession?: true
+  verifyWebhook?(payload: unknown, signature: string): Promise<WebhookEvent>
   chargeOffSession?(customerId: string, amount: number, currency: string): Promise<OffSessionResult>
 }
 ```
+
+`verifyWebhook` is optional because synchronous adapters (e.g., COD) don't have an inbound webhook stream.
 
 Not every provider supports every payment flow; capabilities are explicit.
 
 ```ts
 interface PaymentCapabilities {
+  flow: 'synchronous' | 'redirect' | 'inline'   // see "Payment flow" below
   supportsCapture: boolean         // can capture an authorized payment later
   supportsVoid: boolean            // can void an authorization without a refund
   supportsRefund: boolean          // can refund a captured/paid payment
@@ -128,6 +130,45 @@ interface PaymentCapabilities {
   voidableStates?: PaymentStatus[] // states where cancel() may be called; default ['authorized']
 }
 ```
+
+### Payment flow
+
+Adapters declare how `authorize()` completes:
+
+| `flow` | After `authorize()` | Example providers |
+|---|---|---|
+| `'synchronous'` | Payment is in a deterministic state with no async confirmation expected. No webhook. Manual transition to `paid` via `orders.setPaid`. | Cash on delivery, manual bank transfer, in-store payment |
+| `'redirect'` | Customer must follow `paymentUrl` to complete payment at the provider's hosted page. Confirmation arrives via webhook. | Moyasar invoice, PayPal, hosted-page providers |
+| `'inline'` | Customer completes payment in-page via the provider's JS SDK using `inlineSecret`. Confirmation arrives via webhook. | Stripe Elements, Square Card |
+
+```ts
+type AuthorizeResult = {
+  providerReference: string
+  status: PaymentStatus            // 'initiated' | 'authorized' | 'captured' | 'requires_action' | ...
+  paymentUrl?: string              // present when capabilities.flow === 'redirect'
+  inlineSecret?: string            // present when capabilities.flow === 'inline'
+}
+```
+
+For `flow: 'synchronous'`:
+- `authorize()` returns immediately with `status: 'initiated'` (or `'authorized'` if the adapter has implicit authorization, like an offline gateway with a manual approval workflow).
+- The payment ledger row is inserted with the returned status.
+- The order is in `placed` state, awaiting manual confirmation.
+- `commerce.orders.setPaid({ id })` flips the payment to `paid` when payment is collected (cashier closes the bill, driver confirms cash received, etc.).
+- `setPaid` validates that the adapter declares `flow: 'synchronous'`. Calling it on a `redirect` or `inline` adapter throws — those flows must be confirmed via webhook.
+
+For `flow: 'redirect'` and `'inline'`:
+- `verifyWebhook` is required.
+- `orders.setPaid` is not a valid path; payment confirmation must arrive via the verified webhook.
+
+Capabilities drive `orders.refund` orchestration:
+
+- When `orders.refund` runs (mode `'auto'`), it iterates over eligible payments for the order.
+- For each payment in a state listed in `voidableStates` (default `['authorized']`), the operation calls `adapter.cancel(providerReference)` first.
+- On void failure, or for payments not in a voidable state, the operation calls `adapter.refund(providerReference, amount, reason)`.
+- A payment adapter that auto-captures or does not distinguish void from refund declares `supportsVoid: false`; `orders.refund` then always refunds.
+
+Each successful void or refund appends a new row to the payment ledger; the original payment row is never mutated.
 
 Capabilities drive `orders.refund` orchestration:
 

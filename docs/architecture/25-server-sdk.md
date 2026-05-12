@@ -281,11 +281,19 @@ commerce.orders.checkout({
 }): Promise<{
   order: Order
   paymentReference: string
-  paymentUrl?: string            // present for redirect-based payment flows
+  flow: 'synchronous' | 'redirect' | 'inline'
+  paymentUrl?: string            // present when flow === 'redirect'
+  inlineSecret?: string          // present when flow === 'inline'
 }>
 ```
 
-`paymentUrl` is returned when the payment adapter requires a redirect (e.g. a hosted payment page). When present, the caller must redirect the customer to complete payment. When absent, payment was handled in-process.
+The `flow` field comes from the selected adapter's `capabilities.flow`. The caller dispatches on it:
+
+| `flow` | What the caller does | Order state after checkout |
+|---|---|---|
+| `'synchronous'` | Display the order as awaiting payment collection (COD, manual). Call `orders.setPaid` when payment is collected. | `placed`, payment `initiated` |
+| `'redirect'` | Redirect the customer to `paymentUrl`. | `placed`, payment `initiated`; webhook confirms |
+| `'inline'` | Pass `inlineSecret` to the provider's JS SDK to complete payment in-page. | `placed`, payment `initiated`; webhook confirms |
 
 ### `orders.calculate`
 
@@ -333,7 +341,7 @@ Valid from `draft`, `placed`, `confirmed`, and `processing`. Triggers payment ca
 
 ### `orders.setPaid`
 
-Marks the order as paid. Used for COD, offline, or manual payment flows where a webhook is not expected.
+Marks the order as paid. Valid only for payments whose adapter declares `capabilities.flow === 'synchronous'` — COD, manual bank transfer, in-store payment. Calling `setPaid` on a `redirect` or `inline` payment throws `CommerceStateError`; those flows must be confirmed via webhook.
 
 ```ts
 commerce.orders.setPaid({
