@@ -221,7 +221,7 @@ Core operation keys (always available):
 ```
 products:create        products:update        products:archive
 orders:checkout        orders:cancel          orders:confirm
-orders:setPaid         orders:refund          orders:void
+orders:setPaid         orders:refund
 customers:create       customers:update
 categories:create      categories:update      categories:archive
 ```

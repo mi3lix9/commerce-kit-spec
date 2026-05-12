@@ -347,12 +347,23 @@ commerce.orders.setPaid({
 ```ts
 commerce.orders.refund({
   id: string
-  amount?: Money    // partial refund when provided; full refund when omitted
+  amount?: Money            // partial refund when provided; full refund when omitted
   reason?: string
+  mode?: 'auto' | 'refund-only' | 'void-only'
 }): Promise<Order>
 ```
 
-Triggers the payment adapter's `refund` internally and appends a record to the payment ledger.
+`orders.refund` is the only order-level payment reversal operation. There is no `orders.void` — void is a payment-adapter mechanic, not an order concern. The operation orchestrates void and refund per payment automatically.
+
+Behavior per eligible payment (in `mode: 'auto'`, the default):
+
+1. If the payment is in a voidable state (typically `authorized`) AND the adapter declares `capabilities.supportsVoid: true`, call `adapter.cancel(providerReference)` first.
+2. If void fails or the payment is not in a voidable state, call `adapter.refund(providerReference, amount, reason)`.
+3. The payment ledger receives a new append-only row recording either the `voided` or `refunded` outcome.
+
+`mode: 'refund-only'` skips the void attempt and always uses `refund`. `mode: 'void-only'` requires the payment to be in a voidable state and the adapter to support void; otherwise the operation errors. Default is `'auto'`.
+
+The void-first orchestration matches the common provider pattern where voiding an authorization is cheaper than refunding a capture. Adapters that do not differentiate (or that auto-capture) declare `supportsVoid: false` and only refund.
 
 ---
 

@@ -118,6 +118,26 @@ interface PaymentAdapter {
 
 Not every provider supports every payment flow; capabilities are explicit.
 
+```ts
+interface PaymentCapabilities {
+  supportsCapture: boolean         // can capture an authorized payment later
+  supportsVoid: boolean            // can void an authorization without a refund
+  supportsRefund: boolean          // can refund a captured/paid payment
+  supportsPartialRefund: boolean
+  supportsOffSession: boolean      // can charge a saved customer without a session
+  voidableStates?: PaymentStatus[] // states where cancel() may be called; default ['authorized']
+}
+```
+
+Capabilities drive `orders.refund` orchestration:
+
+- When `orders.refund` runs (mode `'auto'`), it iterates over eligible payments for the order.
+- For each payment in a state listed in `voidableStates` (default `['authorized']`), the operation calls `adapter.cancel(providerReference)` first.
+- On void failure, or for payments not in a voidable state, the operation calls `adapter.refund(providerReference, amount, reason)`.
+- A payment adapter that auto-captures or does not distinguish void from refund declares `supportsVoid: false`; `orders.refund` then always refunds.
+
+Each successful void or refund appends a new row to the payment ledger; the original payment row is never mutated.
+
 ### Multiple payment adapters
 
 ```ts
