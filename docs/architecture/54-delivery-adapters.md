@@ -47,15 +47,71 @@ Each factory's return type carries a literal `id`. TypeScript infers the union `
 
 Pricing strategies are declared at app boot via the sibling `deliveryPricing: []` slot and passed inline to each method via typed factories — see [55-delivery-pricing.md](./55-delivery-pricing.md).
 
-### Auto-dispatch behavior
+### Two confirmation flows
 
-Dispatch on order confirmation is on by default. To opt out:
+Merchants generally fall into one of two operational patterns:
+
+- **Accept then dispatch (manual)** — Merchant reviews each order, accepts it, then explicitly dispatches the delivery. Common when the merchant wants a final check before paying a third-party provider.
+- **Accept and auto-dispatch** — Merchant accepts the order and dispatch fires automatically. Common when delivery is in-house or the merchant trusts the chosen method blindly.
+
+Both are first-class. The choice is governed by a hierarchical setting (app → merchant → method), and "manual" follows a **queue model** so admin UIs always have a row to attach buttons to.
+
+### Auto-dispatch resolution
+
+When `orders:confirmed` fires, core resolves auto-dispatch in this order:
+
+```
+deliveryMethod.autoDispatch !== 'inherit'   → use method setting
+else merchant.autoDispatchDelivery !== null → use merchant setting
+else app-level orders.autoDispatchDelivery  → use app default (true if unset)
+```
+
+App-level:
 
 ```ts
-orders: {
-  autoDispatchDelivery: false,    // default: true
-}
+createCommerce({
+  orders: {
+    autoDispatchDelivery: false,    // app-wide default; defaults to true when omitted
+  },
+})
 ```
+
+Merchant-level override (settable per merchant via `commerce.merchants.update`):
+
+```ts
+merchant.autoDispatchDelivery: boolean | null   // null means inherit from app
+```
+
+Per-method override (on the `deliveryMethod` row):
+
+```ts
+deliveryMethod.autoDispatch: 'inherit' | 'auto' | 'manual'   // default 'inherit'
+```
+
+### Queue model
+
+Regardless of the resolved auto-dispatch decision, a `Delivery` row is **always** created on `orders:confirmed` in `pending` state with the order's `deliveryMethodId` set. The difference is only whether the adapter call fires:
+
+- **auto** — core immediately calls `adapter.createDelivery(ctx)`. State moves to `dispatched`, `providerReference` is set.
+- **manual** — the row sits in `pending`. Admin UIs list pending deliveries; a button calls `commerce.delivery.create({ orderId })` to dispatch (which transitions `pending` → `dispatched`).
+
+Apps always have a row to attach UI / hooks / analytics to. The order's lifecycle and the delivery's lifecycle stay independent — the order is `confirmed` either way; the delivery is `pending` or `dispatched` depending on the flow.
+
+### Default delivery method
+
+For orders created without an explicit method selection (POS, phone-in, staff-created orders), core resolves a default at order-create time:
+
+```
+order.deliveryMethodId is supplied            → use it
+else order has a branchId and the branch has  → branch.defaultDeliveryMethodId
+  a default
+else order has a merchantId and the merchant  → merchant.defaultDeliveryMethodId
+  has a default
+else order has a deliveryAddress              → throw CommerceValidationError('no_delivery_method')
+else (no delivery needed)                     → deliveryMethodId stays null
+```
+
+Both default fields are settable via `commerce.merchants.update` and `commerce.branches.update`. Branch default takes precedence so a merchant operating in multiple cities can use Leajlak in Riyadh and QMile in Jeddah without conditional logic at the call site.
 
 ## `DeliveryAdapter` interface
 
@@ -144,6 +200,7 @@ deliveryMethod = {
   enabled: boolean
   minOrderAmount: Money | null
   maxDistanceMeters: number | null
+  autoDispatch: 'inherit' | 'auto' | 'manual'   // override the merchant/app default; 'inherit' is the default
 
   merchant: merchant().optional()  // hierarchical tenancy
   branch: branch().optional()      // per-branch pricing/methods

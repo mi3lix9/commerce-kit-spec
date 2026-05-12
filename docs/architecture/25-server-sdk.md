@@ -565,7 +565,17 @@ commerce.cart.clear({ id: string }): Promise<Cart>
 commerce.merchants.list({ where?, orderBy?, limit?, cursor? }): Promise<ListResult<Merchant>>
 commerce.merchants.get({ id: string }): Promise<Merchant>
 commerce.merchants.create({ name, slug, metadata? }): Promise<Merchant>
-commerce.merchants.update({ id, data }): Promise<Merchant>
+commerce.merchants.update({
+  id: string
+  data: {
+    name?: string
+    slug?: string
+    status?: 'active' | 'suspended' | 'archived'
+    autoDispatchDelivery?: boolean | null      // null clears the override; falls back to app default
+    defaultDeliveryMethodId?: string | null
+    metadata?: Record<string, unknown>
+  }
+}): Promise<Merchant>
 commerce.merchants.archive({ id: string }): Promise<Merchant>
 ```
 
@@ -578,8 +588,28 @@ commerce.merchants.archive({ id: string }): Promise<Merchant>
 ```ts
 commerce.branches.list({ where?: { merchantId? }, ... }): Promise<ListResult<Branch>>
 commerce.branches.get({ id: string }): Promise<Branch>
-commerce.branches.create({ merchantId, name, slug, metadata? }): Promise<Branch>
-commerce.branches.update({ id, data }): Promise<Branch>
+commerce.branches.create({
+  merchantId: string
+  name: string
+  slug: string
+  address: Address
+  coordinates?: Coordinates
+  timezone: string
+  metadata?: Record<string, unknown>
+}): Promise<Branch>
+commerce.branches.update({
+  id: string
+  data: {
+    name?: string
+    slug?: string
+    status?: 'active' | 'archived'
+    address?: Address
+    coordinates?: Coordinates | null
+    timezone?: string
+    defaultDeliveryMethodId?: string | null    // takes precedence over the merchant default
+    metadata?: Record<string, unknown>
+  }
+}): Promise<Branch>
 commerce.branches.archive({ id: string }): Promise<Branch>
 ```
 
@@ -709,6 +739,7 @@ commerce.delivery.methods.create({
   pricing: PricingValue       // discriminated union from deliveryPricing strategies
   minOrderAmount?: Money
   maxDistanceMeters?: number
+  autoDispatch?: 'inherit' | 'auto' | 'manual'   // default 'inherit' — uses merchant/app setting
   metadata?: Record<string, unknown>
 }): Promise<DeliveryMethod>
 ```
@@ -726,6 +757,7 @@ commerce.delivery.methods.update({
     pricing?: PricingValue
     minOrderAmount?: Money | null
     maxDistanceMeters?: number | null
+    autoDispatch?: 'inherit' | 'auto' | 'manual'
     metadata?: Record<string, unknown>
   }
 }): Promise<DeliveryMethod>

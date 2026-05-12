@@ -299,6 +299,8 @@ merchant = {
   name: string
   slug: string
   status: 'active' | 'suspended' | 'archived'
+  autoDispatchDelivery: boolean | null         // null = inherit from app default; see 54-delivery-adapters.md
+  defaultDeliveryMethodId: string | null       // fallback when an order has no explicit method
   metadata: Record<string, unknown>
   createdAt: Date
   updatedAt: Date
@@ -317,6 +319,7 @@ branch = {
   address: Address           // physical location (street, city, country, postal code)
   coordinates: Coordinates | null   // lat/lng — optional in schema, required by distance-based delivery
   timezone: string           // IANA, e.g. 'Asia/Riyadh' — used for local-time display and scheduling
+  defaultDeliveryMethodId: string | null   // takes precedence over the merchant default for orders at this branch
   metadata: Record<string, unknown>
   createdAt: Date
   updatedAt: Date
