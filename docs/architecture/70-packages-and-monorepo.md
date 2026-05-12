@@ -70,8 +70,6 @@ commerce-kit/
 │   ├── smsa/                    ← "@commerce-kit/smsa"
 │   ├── marsool/                 ← "@commerce-kit/marsool"
 │   ├── jahez/                   ← "@commerce-kit/jahez"
-│   ├── marketplace/             ← "@commerce-kit/marketplace"
-│   ├── vendor-payouts/          ← "@commerce-kit/vendor-payouts"
 │   ├── hono/                    ← "@commerce-kit/hono"
 │   ├── elysia/                  ← "@commerce-kit/elysia"
 │   ├── express/                 ← "@commerce-kit/express"
@@ -107,8 +105,6 @@ commerce-kit/
 | `@commerce-kit/smsa` | fulfillment adapter (carrier shipping) |
 | `@commerce-kit/marsool` | fulfillment adapter (local delivery) |
 | `@commerce-kit/jahez` | fulfillment adapter (local delivery) |
-| `@commerce-kit/marketplace` | major domain plugin for vendor, `vendorOrder`, vendor ownership, and marketplace workflows |
-| `@commerce-kit/vendor-payouts` | marketplace-adjacent plugin using the core payout adapter interface |
 | `@commerce-kit/hono` | framework adapter |
 | `@commerce-kit/elysia` | framework adapter |
 | `@commerce-kit/express` | framework adapter |
@@ -143,7 +139,7 @@ commerce-kit/
 | `@commerce-kit/hyperpay` | payout adapter |
 | `@commerce-kit/r2` | storage adapter |
 
-`@commerce-kit/marketplace` is the first-class package that owns the marketplace domain boundary. Related packages such as `@commerce-kit/vendor-payouts` may build on marketplace workflows or optional payout adapters, but they do not replace marketplace as the source of truth for vendor topology.
+Marketplace functionality (cross-merchant checkout, order groups) lives in core under `tenancy.checkout: 'split'` — there is no separate marketplace package. See [12-tenancy.md](./12-tenancy.md) and [45-marketplace-mode.md](./45-marketplace-mode.md).
 
 The package inventory follows the adapter-system contract: provider-neutral adapter interfaces and the bundled `drizzleAdapter` live in `commerce-kit`, while provider implementations, the fetch client runtime (`@commerce-kit/client`), and optional domain packages ship separately.
 
@@ -155,7 +151,7 @@ The package inventory follows the adapter-system contract: provider-neutral adap
 - Minor: backward-compatible new features
 - Major: breaking changes and a written migration guide
 
-Any change to the `CommercePlugin` interface or core database schema is a major version bump.
+Any change to the `plugin()` contract, tenancy column helpers, or core database schema is a major version bump.
 
 ### Release workflow
 

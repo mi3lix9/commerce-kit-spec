@@ -53,8 +53,9 @@ These guarantees are bounded by TypeScript's static analysis model. They apply t
 
 Type removal is part of the contract, not an implementation detail.
 
-- Without `@commerce-kit/marketplace`, vendor and `vendorOrder` APIs do not exist at compile time.
-- Marketplace-installed route and client namespaces exist only when the marketplace plugin contributes them through the documented plugin contract.
+- Without `tenancy.merchants: true`, `commerce.merchants.*` does not exist at compile time, and `merchant()` columns on plugin tables resolve to nothing.
+- Without `tenancy.branches: true`, `commerce.branches.*` does not exist at compile time, and `branch()` columns resolve to nothing.
+- Without `tenancy.checkout: 'split'`, `orderGroup` and `order.groupId` are absent from the type surface.
 - With no `fulfillment` configuration, fulfillment APIs do not exist at compile time.
 
 This mirrors the runtime architecture: inactive capabilities do not expose dormant surface area.
@@ -67,8 +68,7 @@ For marketplace specifically:
 
 - core `OrderStatus` keeps the simple-store base lifecycle
 - `@commerce-kit/marketplace` may add declared states and transitions only where the customer-facing core order lifecycle must expose marketplace-aware progression
-- `vendorOrder.status` is a separate marketplace-owned lifecycle and must not be treated as the same type as core `OrderStatus` unless the marketplace package explicitly defines and names such a projection
-- any marketplace-managed `vendorOrder.status` lifecycle must be validated by the marketplace package at runtime; it is not automatically part of the core `OrderStatus` union
+- when `tenancy.checkout: 'split'` is enabled, `orderGroup.status` is a separate aggregate lifecycle derived from child `order.status` values; it is not interchangeable with the core `OrderStatus` union
 
 ## Client inference
 

@@ -196,10 +196,9 @@ Plugin-contributed tasks extend this table when the plugin is installed.
 Plugins register tasks through a `tasks` declaration. Registered tasks become valid keys on `commerce.tasks.run`.
 
 ```ts
-const couponsPlugin = definePlugin({
-  id: 'coupons',
+const couponsPlugin = plugin('coupons', {
   tasks: {
-    'coupons:expire': async (ctx, opts) => {
+    'coupons:expire': async ({ commerce }) => {
       // expire all coupons whose endDate is in the past
     },
   },
@@ -209,24 +208,24 @@ const couponsPlugin = definePlugin({
 await commerce.tasks.run('coupons:expire')
 ```
 
-Plugins may also schedule deferred tasks via the context when a scheduler adapter is active:
+Plugins may also schedule deferred tasks via the keyed `on` handler when a scheduler adapter is active:
 
 ```ts
-hooks: {
-  after: createHook(async (ctx) => {
-    if (ctx.operation === 'orders:checkout' && ctx.scheduler) {
-      await ctx.scheduler.schedule({
-        id: `orders:auto-cancel:${ctx.result.order.id}`,
+on: {
+  'orders:checkout:after': async ({ result, scheduler }) => {
+    if (scheduler) {
+      await scheduler.schedule({
+        id: `orders:auto-cancel:${result.order.id}`,
         type: 'orders:auto-cancel',
-        data: { orderId: ctx.result.order.id },
+        data: { orderId: result.order.id },
         runAt: new Date(Date.now() + 30 * 60 * 1000),
       })
     }
-  }),
+  },
 },
 ```
 
-`ctx.scheduler` is `undefined` when no scheduler adapter is configured. Plugins must guard against this before scheduling deferred work.
+`scheduler` is `undefined` when no scheduler adapter is configured. Plugins must guard against this before scheduling deferred work.
 
 ---
 

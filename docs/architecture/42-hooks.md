@@ -2,215 +2,245 @@
 
 ## Purpose
 
-Define the app-level hook system for Commerce Kit: how developers register `before` and `after` middleware at `createCommerce()` time, the context shape each hook receives, type narrowing by operation, and the `runInBackground` utility for post-commit side effects.
+Define the keyed `on` handler model used at both app-level (via `createCommerce()`) and plugin-level. Handlers are keyed by **operation:phase**, automatically type-narrowed, and support wildcards for cross-cutting concerns.
 
-Plugin-level hooks follow the same `before`/`after` model and use the same `createHook` factory. That contract is defined in [40-plugin-system.md](./40-plugin-system.md). This document defines the app-level surface and the shared context shapes both layers use.
+This document defines the shared handler shape, context fields, transaction semantics, and `runInBackground` behavior. The plugin-side surface is in [40-plugin-system.md](./40-plugin-system.md).
 
 ## Non-goals
 
-- Incoming webhook verification from payment or fulfillment providers — see [80-framework-adapters.md](./80-framework-adapters.md)
+- Incoming webhook verification — see [80-framework-adapters.md](./80-framework-adapters.md)
 - Durable background job queues — see [43-background-tasks.md](./43-background-tasks.md)
+- Tenancy-aware scoping (`merchant()`, `branch()` resolution) — see [12-tenancy.md](./12-tenancy.md)
 
 ## Core decisions
 
-- App-level hooks are registered at `createCommerce()` time via a `hooks` config key.
-- Hooks are `before` and `after` — not a single middleware chain.
-- App-level `before` runs first (before plugin before-hooks). App-level `after` runs last (after plugin after-hooks).
-- Checking `ctx.operation` narrows `ctx.input` and `ctx.result` to the correct types for that operation.
-- `after` hooks provide `ctx.runInBackground()` for scheduling post-commit work that does not block the response.
-- App-level hooks and plugin-level hooks use the same `createHook` factory and the same context shapes.
+- Handlers are registered under an `on` map keyed by `operation:phase` (e.g., `'orders:checkout:before'`).
+- The key narrows `input`/`result` types automatically — no `if (ctx.operation === ...)` ladders.
+- Wildcards (`*:after`, `orders:*`, `*`) are supported for cross-cutting plugins.
+- Handler arguments are **destructured**, not pulled off a `ctx` object.
+- `:before` handlers return `void` to proceed, return a modified input to transform, or throw to abort.
+- `:after` handlers return `void` to pass through, return a modified result to transform, or throw to fail.
+- `:after` handlers provide `runInBackground` for post-commit side effects.
+- App-level handlers wrap plugin-level handlers in execution order.
 
 ## Registration
 
 ```ts
-import { createCommerce, createHook } from 'commerce-kit'
+import { createCommerce } from 'commerce-kit'
 
 const commerce = createCommerce({
   database: drizzleAdapter(db, { schema }),
-  payment: {
-    moyasar: moyasar({ secretKey: env.MOYASAR_SECRET }),
-  },
+  payment: { moyasar: moyasar({ secretKey: env.MOYASAR_SECRET }) },
 
-  hooks: {
-    before: createHook(async (ctx) => {
-      if (ctx.operation === 'orders:checkout') {
-        if (isBlockedCustomer(ctx.request.customerId)) {
-          throw new CommerceError('Account suspended')
-        }
+  on: {
+    'orders:checkout:before': async ({ input, request }) => {
+      if (isBlockedCustomer(request.customerId)) {
+        throw new CommerceError('Account suspended')
       }
-    }),
+    },
 
-    after: createHook(async (ctx) => {
-      if (ctx.operation === 'orders:checkout') {
-        ctx.runInBackground(async () => {
-          await sendOrderConfirmationEmail(ctx.result.order)
-        })
-      }
-    }),
+    'orders:checkout:after': async ({ result, runInBackground }) => {
+      runInBackground(async () => {
+        await sendOrderConfirmationEmail(result.order)
+      })
+    },
   },
 
   onBackgroundError: (error, ctx) => {
-    logger.error('Background hook failed', { operation: ctx.operation, error })
+    logger.error('Background handler failed', { operation: ctx.operation, error })
   },
 })
 ```
 
-## `before` hook
+## Handler key syntax
 
-### Context shape
+```
+<namespace>:<method>:<phase>
+```
+
+| Pattern | Matches |
+|---|---|
+| `'orders:checkout:before'` | exact phase of exact operation |
+| `'orders:checkout:after'` | exact phase of exact operation |
+| `'orders:checkout:*'` | both phases of one operation |
+| `'orders:*'` | every phase of every `orders:` operation |
+| `'*:before'` | before phase of every operation |
+| `'*:after'` | after phase of every operation |
+| `'*'` | every phase of every operation |
+
+Wildcards make cross-cutting handlers (audit log, analytics, request tracing) ergonomic.
+
+## `:before` handler
+
+### Argument shape
 
 ```ts
-type BeforeHookContext = {
-  operation: OperationKey           // e.g. 'orders:checkout'
-  input: OperationInput[operation]  // typed per operation after narrowing
-  request: RequestContext           // customerId, actorId, roles, locale, metadata
+{
+  operation: OperationKey     // narrowed to the matching key
+  input: OperationInput       // narrowed per operation — no manual checks
+  request: RequestContext     // customerId, actorId, merchantId, branchId, etc.
+  commerce: CommerceSDK       // pre-scoped to current request context
 }
 ```
 
 ### Behavior
 
-| Return value       | Effect                                              |
-|--------------------|-----------------------------------------------------|
-| `void` / `undefined` | Proceed with the original input                   |
+| Return value | Effect |
+|---|---|
+| `void` / `undefined` | Proceed with the original input |
 | Modified input object | Replace the operation's input with the returned value |
-| throw              | Abort the operation; the error is returned to the caller |
-
-Returning a modified input is the hook-level equivalent of `transformFunctionInput` — it lets the before hook enrich or sanitize input before the operation and plugins run.
+| throw | Abort the operation; error returned to the caller |
 
 ```ts
-before: createHook(async (ctx) => {
-  if (ctx.operation === 'orders:checkout') {
-    // annotate every checkout with the request source
-    return {
-      ...ctx.input,
-      metadata: { ...ctx.input.metadata, source: 'web' },
-    }
+'orders:checkout:before': async ({ input }) => {
+  // annotate every checkout with the request source
+  return {
+    ...input,
+    metadata: { ...input.metadata, source: 'web' },
   }
-})
+}
 ```
 
-## `after` hook
+## `:after` handler
 
-### Context shape
+### Argument shape
 
 ```ts
-type AfterHookContext = {
-  operation: OperationKey             // e.g. 'orders:checkout'
-  input: OperationInput[operation]    // the original input
-  result: OperationResult[operation]  // typed per operation after narrowing
+{
+  operation: OperationKey
+  input: OperationInput
+  result: OperationResult     // narrowed per operation
   request: RequestContext
+  commerce: CommerceSDK
   runInBackground: (fn: () => Promise<void>) => void
 }
 ```
 
 ### Behavior
 
-| Return value         | Effect                                              |
-|----------------------|-----------------------------------------------------|
-| `void` / `undefined` | Pass the original result through to the caller      |
+| Return value | Effect |
+|---|---|
+| `void` / `undefined` | Pass the original result through |
 | Modified result object | Replace the operation's result with the returned value |
-| throw                | The operation fails; the error is returned to the caller |
+| throw | The operation fails; error returned to the caller |
 
 ### `runInBackground`
 
-`runInBackground` schedules a function to run after the database transaction commits. It does not block the HTTP response. Errors thrown inside it are captured and forwarded to `onBackgroundError`; they do not affect the operation's HTTP response status.
+`runInBackground` schedules a function to run **after the database transaction commits**. It does not block the HTTP response. Errors thrown inside the callback are forwarded to `onBackgroundError`; they do not affect the response status.
 
 ```ts
-after: createHook(async (ctx) => {
-  if (ctx.operation === 'orders:checkout') {
-    // does not delay the checkout response
-    ctx.runInBackground(async () => {
-      await sendOrderConfirmationEmail(ctx.result.order)
-      await analytics.track('order_placed', { orderId: ctx.result.order.id })
-    })
-  }
-
-  if (ctx.operation === 'orders:cancelled') {
-    ctx.runInBackground(async () => {
-      await notifyFulfillmentTeam(ctx.result.order)
-    })
-  }
-})
+'orders:checkout:after': async ({ result, runInBackground }) => {
+  runInBackground(async () => {
+    await sendOrderConfirmationEmail(result.order)
+    await analytics.track('order_placed', { orderId: result.order.id })
+  })
+}
 ```
 
-Work registered via `runInBackground` is fire-and-forget from Commerce Kit's perspective. If guaranteed delivery is required, the background function should enqueue a job using the application's own job queue rather than performing the side effect directly.
+Work registered via `runInBackground` is fire-and-forget from Commerce Kit's perspective. If guaranteed delivery is required, the background function should enqueue a durable job via the application's job queue rather than performing the side effect directly.
 
-## Type narrowing by operation
+## Type narrowing
 
-Checking `ctx.operation` narrows both `ctx.input` and `ctx.result` to the correct types. No casting is required.
+The key narrows both `input` and `result` automatically:
 
 ```ts
-after: createHook(async (ctx) => {
-  if (ctx.operation === 'orders:checkout') {
-    ctx.result   // → CheckoutResult: { order: Order; paymentReference: string }
-    ctx.input    // → CheckoutInput
-  }
+on: {
+  'orders:checkout:after': async ({ result }) => {
+    result.order             // → Order
+    result.paymentReference  // → string
+    result.paymentUrl        // → string | undefined
+  },
 
-  if (ctx.operation === 'products:create') {
-    ctx.result   // → Product
-    ctx.input    // → CreateProductInput
-  }
-})
+  'products:create:after': async ({ result }) => {
+    result                   // → Product
+  },
+}
 ```
 
-The full `OperationKey` union is derived from the installed plugin and adapter set at `createCommerce()` time. Plugin-contributed operations become valid `ctx.operation` values after narrowing when the plugin is installed.
+The full `OperationKey` union is derived from the installed plugin and adapter set at `createCommerce()` time. Plugin-contributed operations become valid keys when the plugin is installed.
+
+### Narrowing under wildcards
+
+Wildcard handlers receive widened types. The handler is responsible for narrowing manually if it needs to:
+
+```ts
+on: {
+  '*:after': async ({ operation, result }) => {
+    if (operation === 'orders:checkout') {
+      result.order  // narrowed
+    }
+  },
+}
+```
 
 ## Execution order
 
 For each operation:
 
-1. App-level `before` hook
-2. Plugin `before` hooks in declaration order
+1. App-level `:before` handlers in declaration order
+2. Plugin `:before` handlers in plugin declaration order
 3. Operation handler (inside the database transaction)
-4. Plugin `after` hooks in declaration order
-5. App-level `after` hook
+4. Plugin `:after` handlers in plugin declaration order
+5. App-level `:after` handlers in declaration order
 6. Transaction commits
 7. `runInBackground` callbacks execute post-commit
 
-The app-level hook wraps the full plugin and operation stack. Plugin after-hooks complete before the app-level after hook runs, so the after hook sees the result after any plugin-level post-processing.
+App-level handlers wrap the full plugin and operation stack: app-before runs first, app-after runs last. Plugin `:after` handlers complete before the app-level `:after` handler runs, so the app handler sees the result after any plugin-level post-processing.
+
+Wildcards within a single source (app or plugin) run alongside exact matches in declaration order — no priority between specific and wildcard handlers.
+
+## Transaction boundary
+
+- `:after` means after the core handler logic, **not** after database commit.
+- Commerce Kit must not commit until all participating `:after` handlers complete successfully.
+- Throwing inside `:after` rolls back the transaction.
+- For post-commit side effects (sending notifications, calling external services), use `runInBackground`.
+
+## `request` context
+
+```ts
+type RequestContext = {
+  customerId?: string | null
+  actorId?: string | null
+  actorType?: string          // 'customer' | 'merchant' | 'admin' | ...
+  roles?: string[]
+  permissions?: string[]
+  merchantId?: string         // present when tenancy.merchants is on
+  branchId?: string         // present when tenancy.branches is on
+  locale?: string
+  metadata?: Record<string, unknown>
+}
+```
+
+Tenancy fields (`merchantId`, `branchId`) drive automatic write inference and hierarchical reads for tables that declare `merchant()` / `branch()` columns. See [12-tenancy.md](./12-tenancy.md).
 
 ## Operation keys
 
-These are the valid `ctx.operation` values from core. Plugin-contributed operations extend this set when the plugin is installed.
-
-### Always available
+Core operation keys (always available):
 
 ```
-products:create       products:update       products:archive
-products:getVersion
-orders:checkout       orders:cancel         orders:confirm
-orders:setPaid        orders:refund
-customers:create      customers:update
-categories:create     categories:update     categories:archive
+products:create        products:update        products:archive
+orders:checkout        orders:cancel          orders:confirm
+orders:setPaid         orders:refund          orders:void
+customers:create       customers:update
+categories:create      categories:update      categories:archive
 ```
 
-### Adapter-gated (only when configured)
+Tenancy-gated (only when configured):
+
+```
+merchants:create       merchants:update       merchants:archive
+branches:create       branches:update       branches:archive
+```
+
+Adapter-gated (only when configured):
 
 ```
 fulfillment:createMethod    fulfillment:updateMethod    fulfillment:archiveMethod
 fulfillment:createFulfillment
 ```
 
-## Plugin-level hooks
-
-Plugins use the same `createHook` factory and receive the same context shapes. The same return-value semantics apply: return `void` to proceed, return a modified input/result to transform, throw to abort.
-
-```ts
-const auditPlugin = definePlugin({
-  id: 'audit-log',
-  hooks: {
-    after: createHook(async (ctx) => {
-      await db.insert(auditLog).values({
-        operation: ctx.operation,
-        actorId: ctx.request.actorId ?? null,
-        at: new Date(),
-      })
-    }),
-  },
-})
-```
-
-Plugin hooks that need post-commit side effects use the same `ctx.runInBackground` utility.
+Plugin-contributed operations extend this set when the plugin is installed.
 
 ## `onBackgroundError`
 
@@ -226,11 +256,13 @@ createCommerce({
 
 ## Cross-links
 
-- Plugin hook contract and execution rules: [40-plugin-system.md](./40-plugin-system.md)
-- `RequestContext` shape and `resolveContext`: [80-framework-adapters.md](./80-framework-adapters.md)
+- Plugin authoring surface and `plugin()` factory: [40-plugin-system.md](./40-plugin-system.md)
+- Tenancy column helpers and hierarchical reads: [12-tenancy.md](./12-tenancy.md)
+- `RequestContext` resolution from HTTP requests: [80-framework-adapters.md](./80-framework-adapters.md)
 - Type inference for plugin-contributed operations: [60-type-inference.md](./60-type-inference.md)
 
 ## Future RFCs
 
 - Ordered `runInBackground` with dependency between background callbacks
 - Retry policy for background callbacks
+- Wildcard priority resolution if multiple plugins need ordered cross-cutting concerns

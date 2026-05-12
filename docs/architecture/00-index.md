@@ -8,23 +8,26 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 
 - Commerce Kit is a library, not a platform.
 - Commerce Kit is a guest in the application's stack.
-- The core architecture is simple-store-first.
-- Major domain expansions ship as plugins.
+- The core architecture is simple-store-first; advanced capabilities are dormant until declared.
+- Tenancy (merchants and branches) is a core capability, not a plugin. Plugins remain tenancy-agnostic through column helpers and a `support` contract.
+- Marketplace is a tenancy checkout mode (`tenancy.checkout: 'split'`), not a separate plugin.
+- Plugins ship as additive features that never depend on each other.
 - Monetary values use integer minor units only.
 - Invalid operations must fail clearly at compile time, runtime, or both.
 
 ## Architecture map
 
-- [Core engine](./10-core-engine.md) — scope, non-goals, principles, simple-store-first boundaries, money rules, and core responsibilities
+- [Core engine](./10-core-engine.md) — scope, non-goals, principles, dormant activation, and core responsibilities
+- [Tenancy](./12-tenancy.md) — `merchant()` / `branch()` column helpers, hierarchical reads, plugin `support` block, and install-time validation
 - [Errors](./15-errors.md) — error class hierarchy, core codes, HTTP response shape, server throwing behavior, client result pattern, and plugin error conventions
-- [Data model](./20-data-model.md) — persistence conventions, core simple-store entities, invariants, and the order state machine
+- [Data model](./20-data-model.md) — persistence conventions, core entities, tenancy entities, invariants, and the order state machine
 - [Cart](./22-cart.md) — client-side cart, auto-recalculation, `orders.calculate`, and server persistence
 - [Server SDK](./25-server-sdk.md) — `commerce.*` method signatures, inputs, return types, `withContext` binding, and shared conventions
 - [Pricing and calculations](./30-pricing-and-calculations.md) — money rules, pricing pipeline, recalculation timing, and audit guarantees
-- [Plugin system](./40-plugin-system.md) — `CommercePlugin`, runtime requirements, hooks, major domain expansion rules, and forbidden behavior
-- [Hooks](./42-hooks.md) — app-level `before`/`after` hooks, `createHook` factory, operation type narrowing, and `runInBackground`
+- [Plugin system](./40-plugin-system.md) — `plugin()` factory, `table()` column helpers, `support` block, keyed `on` handlers, `operations`, and forbidden behavior
+- [Hooks](./42-hooks.md) — keyed `on` handler model, wildcards, operation type narrowing, transaction semantics, and `runInBackground`
 - [Background tasks](./43-background-tasks.md) — immediate side effects, deferred tasks via scheduler adapter, and recurring tasks via `commerce.tasks`
-- [Marketplace plugin](./45-marketplace-plugin.md) — marketplace-owned schema, product ownership, vendor APIs, order splitting, and migration boundaries
+- [Marketplace mode](./45-marketplace-mode.md) — `tenancy.checkout: 'split'`, order groups, cross-merchant carts, and commission boundary
 - [Adapter system](./50-adapter-system.md) — database and provider adapter contracts, dormant activation, and fulfillment model boundaries
 - [Type inference](./60-type-inference.md) — `createCommerce()`-driven type flow and compile-time guarantees
 - [Packages and monorepo](./70-packages-and-monorepo.md) — tooling stack, package map, build conventions, and release rules
@@ -34,20 +37,21 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 ## Recommended reading order
 
 1. [Core engine](./10-core-engine.md)
-2. [Errors](./15-errors.md)
-3. [Data model](./20-data-model.md)
-4. [Cart](./22-cart.md)
-5. [Server SDK](./25-server-sdk.md)
-6. [Pricing and calculations](./30-pricing-and-calculations.md)
-7. [Plugin system](./40-plugin-system.md)
-8. [Hooks](./42-hooks.md)
-9. [Background tasks](./43-background-tasks.md)
-10. [Marketplace plugin](./45-marketplace-plugin.md)
-11. [Adapter system](./50-adapter-system.md)
-12. [Type inference](./60-type-inference.md)
-13. [Packages and monorepo](./70-packages-and-monorepo.md)
-14. [Framework adapters](./80-framework-adapters.md)
-15. [CLI and tooling](./90-cli-and-tooling.md)
+2. [Tenancy](./12-tenancy.md)
+3. [Errors](./15-errors.md)
+4. [Data model](./20-data-model.md)
+5. [Cart](./22-cart.md)
+6. [Server SDK](./25-server-sdk.md)
+7. [Pricing and calculations](./30-pricing-and-calculations.md)
+8. [Plugin system](./40-plugin-system.md)
+9. [Hooks](./42-hooks.md)
+10. [Background tasks](./43-background-tasks.md)
+11. [Marketplace mode](./45-marketplace-mode.md)
+12. [Adapter system](./50-adapter-system.md)
+13. [Type inference](./60-type-inference.md)
+14. [Packages and monorepo](./70-packages-and-monorepo.md)
+15. [Framework adapters](./80-framework-adapters.md)
+16. [CLI and tooling](./90-cli-and-tooling.md)
 
 ## Reading rules
 

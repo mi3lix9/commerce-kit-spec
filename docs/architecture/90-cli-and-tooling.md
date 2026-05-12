@@ -14,7 +14,7 @@ Define config path conventions, required config file shape, recommended project 
 
 ### Config path convention
 
-The default Commerce Kit config location is `lib/commerce.ts`.
+The default Commerce Kit config branch is `lib/commerce.ts`.
 
 This follows the same singleton-placement convention as `lib/auth.ts` and `lib/db.ts`.
 
@@ -120,16 +120,15 @@ Performs the approved automation sequence:
 4. Run `migrate`
 5. Warn about missing runtime dependencies; do not install them silently
 
-Adding `@commerce-kit/marketplace` is the canonical expansion flow from a simple store into marketplace topology. The tooling story is migration-assisted, not migration-free.
+Enabling tenancy (`tenancy.merchants`, `tenancy.branches`) or marketplace checkout mode (`tenancy.checkout: 'split'`) is the canonical expansion flow from a simple store into multi-merchant topology. The tooling story is migration-assisted, not migration-free.
 
-Expected marketplace expansion flow:
+Expected expansion flow:
 
-1. Install `@commerce-kit/marketplace`
-2. Scaffold marketplace plugin configuration into `lib/commerce.ts`
-3. Run `generate` to add marketplace-managed tables and extensions
-4. Run `migrate` to apply the schema changes
-5. Run marketplace validation/backfill helpers to attach vendor ownership where required
-6. Report any historical orders or products that need manual attribution before full marketplace workflows are enabled
+1. Update `createCommerce()` config to enable the desired tenancy axes
+2. Run `generate` to materialize tenancy tables (`merchants`, `branches`, `orderGroup`) and inject `merchant() / branch()` columns on declared tables
+3. Run `migrate` to apply the schema changes
+4. Run backfill helpers to attach merchant ownership to existing products/orders where required
+5. Report any historical rows that need manual attribution before tenancy-aware workflows are fully enabled
 
 ### `commerce-kit check`
 
@@ -140,7 +139,12 @@ Validates the full setup for local verification and CI.
 - Runtime requirements
 - Schema sync
 
-When marketplace is installed, `check` should also validate the marketplace expansion boundary: required tables exist, vendor ownership backfills are complete enough for the selected workflows, and any unresolved historical attribution gaps are surfaced explicitly.
+When tenancy is enabled, `check` should also validate that:
+
+- every required `merchant()` column on declared tables is backfilled
+- plugin `support` declarations match the active tenancy config
+- if `tenancy.checkout: 'split'`, the `orderGroup` table exists
+- no plugin declares a tenancy requirement that the active config does not satisfy
 
 ## Planned commands
 

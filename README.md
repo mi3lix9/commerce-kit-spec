@@ -2,11 +2,11 @@
 
 ## What is Commerce Kit?
 
-Commerce Kit is an open-source, TypeScript-native commerce library project for teams that want a headless commerce engine as code. The current docs define the intended v1 shape for catalog, orders, payments, pricing, tax, shipping, delivery, and the order lifecycle.
+Commerce Kit is an open-source, TypeScript-native commerce library for teams that want a headless commerce engine as code. The current docs define the intended v1 shape for catalog, orders, payments, pricing, fulfillment, tenancy (merchants and branches), and the order lifecycle.
 
 ## Why it exists
 
-Most commerce solutions bundle platform choices together. Commerce Kit is intended to make the commerce domain installable as a library instead.
+Most commerce solutions bundle platform choices together. Commerce Kit is a library, not a platform — it integrates into an existing stack instead of replacing the runtime, ORM, framework, or deployment model.
 
 ## Status
 
@@ -16,22 +16,54 @@ Commerce Kit is currently in the architecture and v1 definition stage. The core 
 
 This reflects a proposed v1 usage shape. The names below are illustrative, not final shipped APIs.
 
+### Simple store
+
 ```ts
 import { createCommerce, drizzleAdapter } from "commerce-kit"
-import { moyasarPayments } from "@commerce-kit/moyasar"
-import { aramexFulfillment } from "@commerce-kit/aramex"
-import { marsoolFulfillment } from "@commerce-kit/marsool"
+import { moyasar } from "@commerce-kit/moyasar"
+import { aramex } from "@commerce-kit/aramex"
 import { couponsPlugin } from "@commerce-kit/coupons"
 
 createCommerce({
-  database: drizzleAdapter({ db, provider: "postgres" }),
-  payments: [moyasarPayments({ adapterId: "moyasar-main" })],
-  fulfillment: [aramexFulfillment(), marsoolFulfillment()],
+  database: drizzleAdapter(db, { schema }),
+  payment: {
+    moyasar: moyasar({ secretKey: env.MOYASAR_SECRET }),
+  },
+  fulfillment: {
+    aramex: aramex({ apiKey: env.ARAMEX_KEY }),
+  },
   plugins: [couponsPlugin()],
 })
 ```
 
-Start with the core store shape above. If you later need a marketplace, install a marketplace plugin that adds vendor-owned domain models, routes, and workflows without making them part of the base setup.
+### Multi-merchant SaaS (each merchant has their own storefront)
+
+```ts
+createCommerce({
+  database: drizzleAdapter(db, { schema }),
+  payment: { moyasar: moyasar({ secretKey: env.MOYASAR_SECRET }) },
+  tenancy: {
+    merchants: true,
+    branches: true,
+  },
+  plugins: [couponsPlugin()],
+})
+```
+
+### Marketplace (shared storefront, cross-merchant cart)
+
+```ts
+createCommerce({
+  database: drizzleAdapter(db, { schema }),
+  payment: { stripe: stripe({ secretKey: env.STRIPE_SECRET }) },
+  tenancy: {
+    merchants: true,
+    checkout: "split",
+  },
+})
+```
+
+The same `couponsPlugin` works in all three configurations without any change. Plugins are tenancy-agnostic by default.
 
 ## Documentation
 
@@ -42,16 +74,17 @@ Start with the core store shape above. If you later need a marketplace, install 
 
 ## Planned v1 scope
 
-Planned v1 focuses on the core engine for a straightforward store: products and variants, cart and checkout flow, orders and lifecycle management, payments, pricing, tax and coupon rules, and unified fulfillment integrations for shipping, local delivery, pickup, or digital delivery. Marketplace capabilities are an opt-in plugin expansion when a business is ready for them.
+Planned v1 focuses on the core engine for a straightforward store: products and variants, orders and lifecycle management, payments, pricing, an append-only payment ledger, and fulfillment integrations for shipping, local delivery, pickup, or digital delivery.
+
+Tenancy (multi-merchant, multi-branch, marketplace checkout) is a core capability with dormant activation — off by default, declared in `createCommerce()` when needed. Plugins layer on top through a single keyed-handler API and never depend on each other.
 
 ## Principles
 
 - Library, not platform
 - Guest in your stack
-- Plugin-first extension model
-- Simple-store-first core
-- Marketplace as an opt-in expansion
-- Easy migration path into marketplace complexity when needed
+- Simple-store-first core; complexity is opt-in
+- Tenancy is core, not a plugin — but dormant until declared
+- Plugins are tenancy-agnostic and never depend on each other
 - Integer minor-unit money rules
 - Clear type and runtime boundaries
 

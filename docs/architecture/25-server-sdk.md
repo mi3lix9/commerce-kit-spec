@@ -29,9 +29,11 @@ const c = commerce.withContext({
   customerId: session.customerId,
   actorId: session.userId,
   roles: session.roles,
+  merchantId: session.merchantId,    // when tenancy.merchants is enabled
+  branchId: session.branchId,    // when tenancy.branches is enabled
 })
 
-// All calls on `c` pass this context to hooks
+// All calls on `c` pass this context to hooks and tenancy-aware tables
 await c.orders.cancel({ id: 'ord_123' })
 await c.products.archive({ id: 'prod_456' })
 ```
@@ -45,10 +47,14 @@ interface RequestContext {
   actorType?: string
   roles?: string[]
   permissions?: string[]
+  merchantId?: string                // present when tenancy.merchants is on
+  branchId?: string                // present when tenancy.branches is on
   locale?: string
   metadata?: Record<string, unknown>
 }
 ```
+
+When tenancy is active, `merchantId` and `branchId` on the context drive automatic write inference and hierarchical reads for any table declaring `merchant()` / `branch()` columns. See [12-tenancy.md](./12-tenancy.md).
 
 ### Shared types
 
@@ -527,6 +533,34 @@ commerce.cart.remove({
 
 ```ts
 commerce.cart.clear({ id: string }): Promise<Cart>
+```
+
+---
+
+## `merchants`
+
+`merchants` exists only when `tenancy.merchants: true`. See [12-tenancy.md](./12-tenancy.md).
+
+```ts
+commerce.merchants.list({ where?, orderBy?, limit?, cursor? }): Promise<ListResult<Merchant>>
+commerce.merchants.get({ id: string }): Promise<Merchant>
+commerce.merchants.create({ name, slug, metadata? }): Promise<Merchant>
+commerce.merchants.update({ id, data }): Promise<Merchant>
+commerce.merchants.archive({ id: string }): Promise<Merchant>
+```
+
+---
+
+## `branches`
+
+`branches` exists only when `tenancy.branches: true`. See [12-tenancy.md](./12-tenancy.md).
+
+```ts
+commerce.branches.list({ where?: { merchantId? }, ... }): Promise<ListResult<Branch>>
+commerce.branches.get({ id: string }): Promise<Branch>
+commerce.branches.create({ merchantId, name, slug, metadata? }): Promise<Branch>
+commerce.branches.update({ id, data }): Promise<Branch>
+commerce.branches.archive({ id: string }): Promise<Branch>
 ```
 
 ---

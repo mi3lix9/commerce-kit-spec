@@ -16,6 +16,7 @@ Define Commerce Kit persistence conventions, core entities, data invariants, and
 - **Deletion strategy** — entities use status-based lifecycle rules rather than `deletedAt` columns.
 - **Money fields** — persisted amounts use integer minor currency units with a separate ISO 4217 currency code.
 - **Column naming** — naming follows the ORM adapter convention rather than a global hard-coded style.
+- **Tenancy columns** — `merchant()` and `branch()` column helpers are dormant by default. When `tenancy.merchants` or `tenancy.branches` is enabled in `createCommerce()`, the corresponding columns materialize on every table that declares them. See [12-tenancy.md](./12-tenancy.md).
 
 ## Core entities
 
@@ -23,17 +24,23 @@ Define Commerce Kit persistence conventions, core entities, data invariants, and
 
 Fields: `id`, `name`, `slug`, `status`, `metadata`, `pluginData`, `createdAt`, `updatedAt`
 
+Tenancy: `merchant().optional()`, `branch().optional()`. A product may be platform-wide (catalog template), merchant-owned, or branch-pinned.
+
 ### productVariant
 
 Fields: `id`, `productId`, `sku`, `price`, `currency`, `attributes`, `status`, `pluginData`, `createdAt`, `updatedAt`
 
-Any attribute set defines a variant. Each variant owns its price and currency.
+Any attribute set defines a variant. Each variant owns its price and currency. Variants inherit tenancy from their parent product — they do not declare separate `merchant()` / `branch()` columns.
 
 ### order
 
 Core fields: `id`, `customerId`, `status`, `subtotal`, `discountTotal`, `taxTotal`, `fulfillmentTotal`, `total`, `currency`, `paymentAdapterId`, `paymentReference`, `metadata`, `pluginData`, `createdAt`, `updatedAt`
 
 Conditionally materialized fulfillment fields: `fulfillmentMethodId`, `fulfillmentType`, `fulfillmentAdapterId`
+
+Tenancy: `merchant()` required when `tenancy.merchants` is on, `branch().optional()` when `tenancy.branches` is on. An order belongs to exactly one merchant (cross-merchant carts produce one order per merchant via the marketplace `orderGroup` parent — see [45-marketplace-mode.md](./45-marketplace-mode.md)).
+
+Marketplace fields, materialized when `tenancy.checkout: 'split'`: `groupId` (nullable foreign key to `orderGroup`).
 
 Orders are permanent financial records and are never deleted. `customerId` is nullable so guest, offline, and COD orders remain first-class. Conditional fulfillment fields exist only when fulfillment is active.
 
@@ -62,6 +69,32 @@ Payments form an immutable append-only ledger with one row per payment event.
 Fields: `id`, `orderId`, `fromStatus`, `toStatus`, `triggeredBy`, `reason`, `metadata`, `createdAt`
 
 Order transitions are stored as an append-only audit log. `fromStatus` and `toStatus` are strings rather than enums so plugin-registered states can be captured.
+
+## Tenancy entities (dormant)
+
+These materialize only when the corresponding tenancy axis is enabled in `createCommerce()`.
+
+### merchant
+
+Materialized when `tenancy.merchants: true`.
+
+Fields: `id`, `name`, `slug`, `status` (`active | suspended | archived`), `metadata`, `createdAt`, `updatedAt`
+
+### branch
+
+Materialized when `tenancy.branches: true` (which also requires `tenancy.merchants: true`).
+
+Fields: `id`, `merchantId`, `name`, `slug`, `status` (`active | archived`), `metadata`, `createdAt`, `updatedAt`
+
+Every branch belongs to a merchant. The schema-level foreign key is non-nullable.
+
+### orderGroup
+
+Materialized when `tenancy.checkout: 'split'`.
+
+Fields: `id`, `customerId`, `status`, `currency`, `total`, `createdAt`, `updatedAt`
+
+Parent record linking multiple per-merchant `order` rows produced by a single cross-merchant checkout. See [45-marketplace-mode.md](./45-marketplace-mode.md).
 
 ## Invariants
 
@@ -122,4 +155,4 @@ Any plugin-defined state transition recorded against an order must follow the sa
 ## Future RFCs
 
 - Additional plugin-owned entities and optional adapter-owned entities should be documented in their own architecture files instead of expanding this file into a full package catalog.
-- Marketplace-owned entities such as `vendor` and `vendorOrder`, plus any plugin-owned linkage from `product` or `orderItem`, belong in plugin architecture documentation rather than the core model.
+- Tenancy axes beyond `merchant` and `branch` (e.g., region, currency scope) — see [12-tenancy.md](./12-tenancy.md).

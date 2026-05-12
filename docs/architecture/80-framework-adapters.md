@@ -92,18 +92,31 @@ Collision policy is fail-fast:
 - plugin-contributed HTTP routes must not conflict with core routes or with routes from other installed plugins
 - any namespace or route collision is a configuration error during Commerce Kit initialization, not a last-write-wins behavior
 
-Marketplace-owned vendor routes are not part of the base route set. They are installed only when `@commerce-kit/marketplace` is present.
-
-Example marketplace-installed routes:
+Tenancy routes are dormant until activated. When `tenancy.merchants: true` is set in `createCommerce()`, the merchant routes mount automatically:
 
 ```text
-GET    /vendors
-GET    /vendors/:id
-POST   /vendors
-PATCH  /vendors/:id
-POST   /vendors/:id/suspend
-GET    /vendors/:id/orders
-POST   /vendor-orders/:id/transition
+GET    /merchants
+GET    /merchants/:id
+POST   /merchants
+PATCH  /merchants/:id
+POST   /merchants/:id/archive
+```
+
+When `tenancy.branches: true` is set, branch routes also mount:
+
+```text
+GET    /branches
+GET    /branches/:id
+POST   /branches
+PATCH  /branches/:id
+POST   /branches/:id/archive
+```
+
+When `tenancy.checkout: 'split'`, the order-group route surfaces:
+
+```text
+GET    /order-groups/:id
+GET    /order-groups/:id/orders
 ```
 
 ## Input validation
@@ -128,6 +141,8 @@ interface ResolveContextFn<TRequest> {
     actorType?: string
     roles?: string[]
     permissions?: string[]
+    merchantId?: string         // present when tenancy.merchants is on
+    branchId?: string         // present when tenancy.branches is on
     locale?: string
     metadata?: Record<string, unknown>
   }>
@@ -136,9 +151,7 @@ interface ResolveContextFn<TRequest> {
 
 `@commerce-kit/better-auth` provides a prebuilt resolver integration, but Commerce Kit itself remains auth-agnostic.
 
-The base request-context contract is intentionally actor-capable but domain-neutral: applications may supply actor, role, or permission data needed for policy enforcement without introducing vendor or marketplace concepts into core by default.
-
-If an installed plugin such as `@commerce-kit/marketplace` needs additional domain-specific context, that context remains plugin-gated and extension-specific rather than part of the base `ResolveContextFn` contract.
+When tenancy is enabled, the resolver is responsible for populating `merchantId` and `branchId` based on the application's auth model — for example, from the session (a logged-in merchant owner), a subdomain (per-merchant storefronts), or a path parameter (branch-scoped pages). Commerce Kit consumes these values to drive tenancy-aware writes and hierarchical reads automatically; see [12-tenancy.md](./12-tenancy.md).
 
 ## Framework mappings
 

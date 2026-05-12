@@ -63,7 +63,7 @@ export const commerce = createCommerce({
 
 - `drizzleAdapter`
 - adapter interfaces for `payment`, `fulfillment`, `storage`, and `payout`
-- `definePlugin`
+- `plugin` factory, `table` and column helpers (`text`, `integer`, `merchant`, `branch`, etc.)
 - `createCommerce`
 
 Core does not own the fetch client runtime package. The canonical client factory is published from `@commerce-kit/client`, while core remains the source of server-instance types that the client package consumes.
@@ -320,7 +320,7 @@ createCommerce({
 Normative rules:
 
 - Payout activates only when a payout provider is registered.
-- Payout activation is commonly required by `@commerce-kit/vendor-payouts`, but activation itself is still owned by core.
+- Payout activation is commonly required by applications using marketplace mode (`tenancy.checkout: 'split'`) for per-merchant settlement, but activation itself is still owned by core.
 - Payout-specific schema, routes, hooks, and typed APIs remain dormant until activation.
 
 ## Scheduler adapter
