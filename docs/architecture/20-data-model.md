@@ -86,9 +86,9 @@ Fields: `id`, `name`, `slug`, `status` (`active | suspended | archived`), `metad
 
 Materialized when `tenancy.branches: true` (which also requires `tenancy.merchants: true`).
 
-Fields: `id`, `merchantId`, `name`, `slug`, `status` (`active | archived`), `metadata`, `createdAt`, `updatedAt`
+Fields: `id`, `merchantId`, `name`, `slug`, `address`, `coordinates`, `timezone`, `status` (`active | archived`), `metadata`, `createdAt`, `updatedAt`
 
-Every branch belongs to a merchant. The schema-level foreign key is non-nullable.
+Every branch belongs to a merchant. The schema-level foreign key is non-nullable. `address` is required because the branch's location drives delivery fee calculation, fulfillment routing, and per-branch reporting. `coordinates` is optional but required by adapters that need them (distance-based delivery, mapping integrations). `timezone` is required because business hours, schedules, and reporting are timezone-sensitive.
 
 ### orderGroup
 
