@@ -28,6 +28,7 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 - [Plugin system](./40-plugin-system.md) — `plugin()` factory, `table()` column helpers, `support` block, keyed `on` handlers, `operations`, and forbidden behavior
 - [Hooks](./42-hooks.md) — keyed `on` handler model, wildcards, operation type narrowing, transaction semantics, and `runInBackground`
 - [Background tasks](./43-background-tasks.md) — immediate side effects, deferred tasks via scheduler adapter, and recurring tasks via `commerce.tasks`
+- [Pricing rules plugin](./44-pricing-rules-plugin.md) — `@commerce-kit/pricing-rules`: `discount` / `tax` / `serviceCharge` entities and the three canonical calculation steps
 - [Marketplace mode](./45-marketplace-mode.md) — `tenancy.checkout: 'split'`, order groups, cross-merchant carts, and commission boundary
 - [Adapter system](./50-adapter-system.md) — database and provider adapter contracts, dormant activation, and fulfillment model boundaries
 - [Type inference](./60-type-inference.md) — `createCommerce()`-driven type flow and compile-time guarantees
@@ -48,12 +49,13 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 9. [Plugin system](./40-plugin-system.md)
 10. [Hooks](./42-hooks.md)
 11. [Background tasks](./43-background-tasks.md)
-12. [Marketplace mode](./45-marketplace-mode.md)
-13. [Adapter system](./50-adapter-system.md)
-14. [Type inference](./60-type-inference.md)
-15. [Packages and monorepo](./70-packages-and-monorepo.md)
-16. [Framework adapters](./80-framework-adapters.md)
-17. [CLI and tooling](./90-cli-and-tooling.md)
+12. [Pricing rules plugin](./44-pricing-rules-plugin.md)
+13. [Marketplace mode](./45-marketplace-mode.md)
+14. [Adapter system](./50-adapter-system.md)
+15. [Type inference](./60-type-inference.md)
+16. [Packages and monorepo](./70-packages-and-monorepo.md)
+17. [Framework adapters](./80-framework-adapters.md)
+18. [CLI and tooling](./90-cli-and-tooling.md)
 
 ## Reading rules
 

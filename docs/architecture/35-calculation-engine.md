@@ -255,11 +255,20 @@ After all steps run, core finalizes the result:
 
 - `subtotal` = sum of line totals (no adjustments)
 - `discountTotal`, `serviceChargeTotal`, `taxTotal`, `fulfillmentTotal` = `snapshot.totalOf(kind)` for each canonical kind
-- `total` = `subtotal + sum(all adjustments)`
+- `total` = `subtotal + sum(all adjustments where !metadata.taxInclusive)`
 - For each `appliesTo: 'order'` adjustment, core allocates its amount across line items proportionally to line total. Rounding drift is corrected by adding/subtracting one minor unit on the largest line.
 - For each `appliesTo: { itemId }` adjustment, the amount is pinned to that line item only.
 
 The persisted result on `order` includes the full `adjustments: jsonb` array as the audit trail. Derived totals are stored as columns for query convenience but the adjustments array is the source of truth.
+
+### Inclusive tax handling
+
+Steps may emit adjustments with `metadata.taxInclusive: true` to signal that the amount is already part of the prices (extracted from the base, not added on top). These adjustments:
+
+- DO contribute to `taxTotal` (so reporting shows the tax portion of the inclusive price)
+- DO NOT contribute to `total` (the customer-facing price didn't increase — the tax was always there)
+
+This is the only place where engine math differs based on adjustment metadata. All other adjustment kinds add or subtract from `total` based on their signed `amount`.
 
 ## What runs without any plugin
 
