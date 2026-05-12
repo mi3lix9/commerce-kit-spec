@@ -160,6 +160,29 @@ calculation: {
 
 Pipelines then reference whichever variant they want.
 
+## Core-registered steps
+
+Core itself registers a small set of steps under the `core:*` namespace. These are auto-registered when the corresponding feature slot is active and absent when the slot is dormant.
+
+| Step ID | Registered when | Type | What it emits |
+|---|---|---|---|
+| `core:delivery-fee` | `delivery: [...]` is non-empty | `fulfillment` | One `appliesTo: 'order'` adjustment from the order's `deliveryMethod` pricing strategy. Throws on `below_min_amount` / `out_of_range` / `no_zone_match`. See [55-delivery-pricing.md](./55-delivery-pricing.md). |
+
+The default pipeline auto-injects active `core:*` steps in a fixed order:
+
+```
+pricing-rules:discounts
+pricing-rules:serviceCharges
+core:delivery-fee
+pricing-rules:taxes
+```
+
+Discounts and service charges come first so they can shift the taxable base. Delivery fee is taxable too — it sits before tax. Apps that need a different order set `calculation.pipeline` explicitly.
+
+When the `delivery` slot is dormant, `core:delivery-fee` is neither registered nor auto-injected. Referencing it in an explicit pipeline raises a startup error.
+
+Future `core:*` steps (e.g., `core:rounding`, `core:loyalty-points`) will follow the same auto-injection rule — present only when their feature slot is active.
+
 ## Pipeline sources, in priority order
 
 1. **Per-merchant DB row** (when `calculation.runtime: true` and a row exists for the current `request.merchantId`)

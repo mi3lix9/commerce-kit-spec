@@ -670,6 +670,197 @@ commerce.fulfillment.createLabel({ orderId: string }): Promise<FulfillmentLabel>
 
 ---
 
+## `delivery`
+
+`delivery` exists only when the `delivery: [...]` slot has at least one adapter. See [54-delivery-adapters.md](./54-delivery-adapters.md).
+
+`commerce.delivery.methods.*` is automatically scoped to the request's branch context via `withContext` — listing methods returns only those visible at the current branch (own branch + merchant-wide + platform-wide). Creating without an explicit `branch` defaults to the request's branch.
+
+### `delivery.methods.list`
+
+Admin-style listing. Returns all visible methods regardless of cart or address.
+
+```ts
+commerce.delivery.methods.list({
+  where?: {
+    adapter?: string         // typed as union of registered delivery adapter IDs
+    enabled?: boolean
+    branch?: string | null   // explicit override; defaults to request context
+  }
+  limit?: number
+  cursor?: string
+}): Promise<ListResult<DeliveryMethod>>
+```
+
+### `delivery.methods.get`
+
+```ts
+commerce.delivery.methods.get({ id: string }): Promise<DeliveryMethod>
+```
+
+### `delivery.methods.create`
+
+```ts
+commerce.delivery.methods.create({
+  adapter: string             // typed as union of registered delivery adapter IDs
+  name: string
+  enabled?: boolean
+  branch?: string             // defaults to request's branch context
+  pricing: PricingValue       // discriminated union from deliveryPricing strategies
+  minOrderAmount?: Money
+  maxDistanceMeters?: number
+  metadata?: Record<string, unknown>
+}): Promise<DeliveryMethod>
+```
+
+`pricing` is built by calling a strategy factory: `distanceBased({...})`, `flat({...})`, etc. TS infers the settings shape from the strategy tag. The chosen strategy must be registered in `deliveryPricing: []`.
+
+### `delivery.methods.update`
+
+```ts
+commerce.delivery.methods.update({
+  id: string
+  data: {
+    name?: string
+    enabled?: boolean
+    pricing?: PricingValue
+    minOrderAmount?: Money | null
+    maxDistanceMeters?: number | null
+    metadata?: Record<string, unknown>
+  }
+}): Promise<DeliveryMethod>
+```
+
+### `delivery.methods.archive`
+
+```ts
+commerce.delivery.methods.archive({ id: string }): Promise<DeliveryMethod>
+```
+
+### `delivery.methods.quote`
+
+Checkout-time discovery. Runs every active method's strategy against the supplied cart and address and returns the priced + available options.
+
+```ts
+commerce.delivery.methods.quote({
+  cart: Cart
+  deliveryAddress: Address
+  branch?: string             // defaults to request's branch context
+}): Promise<Array<{
+  methodId: string
+  name: string
+  adapter: string
+  fee: Money
+  etaSeconds?: number
+  unavailable?:
+    | 'below_min_amount'
+    | 'out_of_range'
+    | 'no_zone_match'
+    | 'provider_unavailable'
+    | 'geocoding_failed'
+}>>
+```
+
+Methods where the strategy throws an unservable error are returned with `unavailable` populated and `fee` set to the strategy's last computed value (or zero). Methods that succeed have `unavailable: undefined`. Callers filter by `unavailable === undefined` to render eligible options.
+
+This is a separate operation from `methods.list` because list is admin-oriented (no cart/address) and quote is checkout-oriented (requires both).
+
+### `delivery.create`
+
+Explicit dispatch. Usually triggered automatically by core on `orders:confirmed` (see [54-delivery-adapters.md](./54-delivery-adapters.md)); manual call is for admin tooling or apps that disable auto-dispatch.
+
+```ts
+commerce.delivery.create({
+  orderId: string
+  methodId?: string           // overrides order's deliveryMethodId; used to re-dispatch with a different method
+}): Promise<Delivery>
+```
+
+When `methodId` is provided, the order's `deliveryMethodId` is updated and the new method's adapter handles the dispatch. This is the supported path for retrying a failed delivery with a different provider.
+
+### `delivery.cancel`
+
+Capability-gated. Only present on the typed surface when at least one configured delivery adapter declares `capabilities.cancellation: true`. Calling on a delivery whose adapter doesn't support cancellation throws `CommerceCapabilityError` at runtime.
+
+```ts
+commerce.delivery.cancel({
+  id: string
+  reason?: string
+}): Promise<Delivery>
+```
+
+### `delivery.get`
+
+```ts
+commerce.delivery.get({ id: string }): Promise<Delivery>
+```
+
+### `delivery.list`
+
+```ts
+commerce.delivery.list({
+  where?: {
+    orderId?: string
+    methodId?: string
+    adapter?: string
+    state?: 'pending' | 'dispatched' | 'in_transit' | 'delivered' | 'cancelled' | 'failed'
+  }
+  orderBy?: { createdAt?: 'asc' | 'desc' }[]
+  limit?: number
+  cursor?: string
+}): Promise<ListResult<Delivery>>
+```
+
+### `delivery.track`
+
+Capability-gated. Only present on the typed surface when at least one configured delivery adapter declares `capabilities.realtimeTracking: true`. Returns the current driver and ETA snapshot.
+
+```ts
+commerce.delivery.track({ id: string }): Promise<DeliveryStatus>
+
+type DeliveryStatus = {
+  state: 'pending' | 'dispatched' | 'in_transit' | 'delivered' | 'cancelled' | 'failed'
+  driverInfo?: { name: string; phone: string; vehicle?: string }
+  location?: Coordinates
+  estimatedArrival?: Date
+  lastUpdate: Date
+}
+```
+
+### `delivery.transitions`
+
+The append-only audit log for a delivery — every state change with its source (`'core'`, `'webhook'`, `'poll'`) and timestamp.
+
+```ts
+commerce.delivery.transitions({ id: string }): Promise<DeliveryTransition[]>
+
+type DeliveryTransition = {
+  id: string
+  deliveryId: string
+  from: DeliveryState | null   // null for the initial transition
+  to: DeliveryState
+  source: 'core' | 'webhook' | 'poll'
+  metadata?: Record<string, unknown>
+  occurredAt: Date
+}
+```
+
+### `delivery.strategies.list`
+
+Returns the registered delivery pricing strategies. Used by admin UIs building the "create delivery method" form to render the right inputs per strategy.
+
+```ts
+commerce.delivery.strategies.list(): Promise<Array<{
+  tag: string                  // e.g. 'distance-based' or 'app:vip-tier'
+  description: string | null
+  settingsSchema: JsonSchema   // serialized Zod schema for the strategy's settings
+}>>
+```
+
+See [55-delivery-pricing.md](./55-delivery-pricing.md) for strategy registration.
+
+---
+
 ## `calculation`
 
 `calculation` exists only when `calculation.runtime: true` is set in `createCommerce()`. See [35-calculation-engine.md](./35-calculation-engine.md).

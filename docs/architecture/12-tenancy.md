@@ -310,15 +310,22 @@ When `tenancy.branches: true`, core also materializes a `branches` table:
 ```ts
 branch = {
   id: string
-  merchantId: string   // every branch belongs to a merchant
+  merchantId: string         // every branch belongs to a merchant
   name: string
   slug: string
   status: 'active' | 'archived'
+  address: Address           // physical location (street, city, country, postal code)
+  coordinates: Coordinates | null   // lat/lng — optional in schema, required by distance-based delivery
+  timezone: string           // IANA, e.g. 'Asia/Riyadh' — used for local-time display and scheduling
   metadata: Record<string, unknown>
   createdAt: Date
   updatedAt: Date
 }
 ```
+
+`address` is the canonical branch location used by delivery dispatch as the origin. `coordinates` is nullable because not every branch operates delivery — but any branch that participates in a distance-based delivery method must have coordinates set. The distance-based pricing strategy throws `geocoding_failed` at calc time when coordinates are missing.
+
+Customer-side addresses (where the delivery goes) are not on the branch — they live on the order (`order.deliveryAddress`) and are captured at checkout. Branch address vs order address are deliberately distinct shapes that flow through `CreateDeliveryContext` as `branchAddress` (origin) and `deliveryAddress` (destination).
 
 The corresponding `commerce.merchants.*` and `commerce.branches.*` SDK namespaces appear on the typed SDK only when their tenancy axis is enabled.
 
