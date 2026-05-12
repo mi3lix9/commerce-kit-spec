@@ -32,6 +32,8 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 - [Marketplace mode](./45-marketplace-mode.md) — `tenancy.checkout: 'split'`, order groups, cross-merchant carts, and commission boundary
 - [Adapter system](./50-adapter-system.md) — database and provider adapter contracts, dormant activation, and fulfillment model boundaries
 - [Fulfillment types](./52-fulfillment-types.md) — open type registry with typed data schemas, plugin and inline contributions, validation rules
+- [Delivery adapters](./54-delivery-adapters.md) — `delivery: {}` slot for driver-based dispatch adapters, `DeliveryAdapter` contract, `deliveryMethod` entity, lifecycle and webhooks
+- [Delivery pricing](./55-delivery-pricing.md) — `deliveryPricing: {}` slot for fee-calculation strategies, built-in strategies (free, flat, distance, tiered, weight, zone), `DistanceProvider` abstraction
 - [Type inference](./60-type-inference.md) — `createCommerce()`-driven type flow and compile-time guarantees
 - [Packages and monorepo](./70-packages-and-monorepo.md) — tooling stack, package map, build conventions, and release rules
 - [Framework adapters](./80-framework-adapters.md) — HTTP exposure, route handlers, request context, webhooks, and client SDK rules
@@ -54,10 +56,12 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 13. [Marketplace mode](./45-marketplace-mode.md)
 14. [Adapter system](./50-adapter-system.md)
 15. [Fulfillment types](./52-fulfillment-types.md)
-16. [Type inference](./60-type-inference.md)
-17. [Packages and monorepo](./70-packages-and-monorepo.md)
-18. [Framework adapters](./80-framework-adapters.md)
-19. [CLI and tooling](./90-cli-and-tooling.md)
+16. [Delivery adapters](./54-delivery-adapters.md)
+17. [Delivery pricing](./55-delivery-pricing.md)
+18. [Type inference](./60-type-inference.md)
+19. [Packages and monorepo](./70-packages-and-monorepo.md)
+20. [Framework adapters](./80-framework-adapters.md)
+21. [CLI and tooling](./90-cli-and-tooling.md)
 
 ## Reading rules
 
