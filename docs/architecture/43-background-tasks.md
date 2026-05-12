@@ -57,12 +57,8 @@ import { bullmq } from '@commerce-kit/bullmq'
 
 const commerce = createCommerce({
   database: drizzleAdapter(db, { schema }),
-  payment: {
-    moyasar: moyasar({ secretKey: env.MOYASAR_SECRET }),
-  },
-  scheduler: {
-    jobs: bullmq({ redis: env.REDIS_URL }),
-  },
+  payments: [moyasar({ secretKey: env.MOYASAR_SECRET })],
+  scheduler: bullmq({ redis: env.REDIS_URL }),
 })
 ```
 
@@ -105,9 +101,7 @@ Cancels an order if it has not been confirmed within the configured window after
 
 ```ts
 createCommerce({
-  scheduler: {
-    jobs: bullmq({ redis: env.REDIS_URL }),
-  },
+  scheduler: bullmq({ redis: env.REDIS_URL }),
   tasks: {
     'orders:auto-cancel': { after: '30m' },
   },

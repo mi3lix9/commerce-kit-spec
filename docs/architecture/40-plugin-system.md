@@ -290,25 +290,23 @@ For each operation:
 
 Wildcards run alongside exact matches in declaration order — there is no priority between specific and wildcard handlers within a plugin.
 
-## `fulfillment.types`
+## `fulfillments`
 
 Plugins contribute fulfillment types to core's open type registry. Each type declares a typed `data` schema validated when orders reference the type. Full semantics in [52-fulfillment-types.md](./52-fulfillment-types.md).
 
 ```ts
 plugin('restaurant', {
-  fulfillment: {
-    types: {
-      'restaurant:dinein': {
-        data: z.object({ tableNumber: z.string() }),
-      },
-      'restaurant:curbside': {
-        data: z.object({
-          carPlateNumber: z.string(),
-          parkingNumber: z.string(),
-        }),
-      },
-    },
-  },
+  fulfillments: [
+    fulfillmentType('restaurant:dinein', {
+      data: z.object({ tableNumber: z.string() }),
+    }),
+    fulfillmentType('restaurant:curbside', {
+      data: z.object({
+        carPlateNumber: z.string(),
+        parkingNumber: z.string(),
+      }),
+    }),
+  ],
 })
 ```
 

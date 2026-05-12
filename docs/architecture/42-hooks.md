@@ -30,7 +30,7 @@ import { createCommerce } from 'commerce-kit'
 
 const commerce = createCommerce({
   database: drizzleAdapter(db, { schema }),
-  payment: { moyasar: moyasar({ secretKey: env.MOYASAR_SECRET }) },
+  payments: [moyasar({ secretKey: env.MOYASAR_SECRET })],
 
   on: {
     'orders:checkout:before': async ({ input, request }) => {

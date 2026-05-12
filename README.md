@@ -26,12 +26,8 @@ import { couponsPlugin } from "@commerce-kit/coupons"
 
 createCommerce({
   database: drizzleAdapter(db, { schema }),
-  payment: {
-    moyasar: moyasar({ secretKey: env.MOYASAR_SECRET }),
-  },
-  fulfillment: {
-    aramex: aramex({ apiKey: env.ARAMEX_KEY }),
-  },
+  payments: [moyasar({ secretKey: env.MOYASAR_SECRET })],
+  fulfillments: [aramex({ apiKey: env.ARAMEX_KEY })],
   plugins: [couponsPlugin()],
 })
 ```
@@ -41,7 +37,7 @@ createCommerce({
 ```ts
 createCommerce({
   database: drizzleAdapter(db, { schema }),
-  payment: { moyasar: moyasar({ secretKey: env.MOYASAR_SECRET }) },
+  payments: [moyasar({ secretKey: env.MOYASAR_SECRET })],
   tenancy: {
     merchants: true,
     branches: true,
@@ -55,7 +51,7 @@ createCommerce({
 ```ts
 createCommerce({
   database: drizzleAdapter(db, { schema }),
-  payment: { stripe: stripe({ secretKey: env.STRIPE_SECRET }) },
+  payments: [stripe({ secretKey: env.STRIPE_SECRET })],
   tenancy: {
     merchants: true,
     checkout: "split",
@@ -80,6 +76,10 @@ Tenancy (multi-merchant, multi-branch, marketplace checkout) is a core capabilit
 
 ## Principles
 
+- **Runtime-first, config fallback** — pipelines, pricing strategies, and per-merchant settings live in the database and can be changed at runtime. The `createCommerce()` config is the fallback when no runtime value is set.
+- **Minimal & extendable core** — a small core with a rich, flexible plugin system. Tables-as-values, keyed handlers, calculation steps, and adapter slots make plugin authoring direct.
+- **DX first** — typed factories over stringly-typed IDs, literal-typed adapter keys, capability-gated SDK calls, and `satisfies`-friendly contracts so misconfiguration fails at compile time.
+- **Built-in marketplace** — `tenancy.checkout: 'split'` turns the same engine into a marketplace with cross-merchant carts and order groups. No separate plugin, no fork.
 - Library, not platform
 - Guest in your stack
 - Simple-store-first core; complexity is opt-in

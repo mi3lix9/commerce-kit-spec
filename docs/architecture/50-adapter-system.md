@@ -22,40 +22,40 @@ Plugin extension rules live in [40-plugin-system.md](./40-plugin-system.md). Com
 
 ## Config shape
 
-All adapter slots use objects. Object keys are the adapter IDs and are inferred as literal types by TypeScript, enabling compile-time narrowing (e.g. the `adapterId` field at checkout is typed as the union of registered payment adapter keys).
+All adapter slots use **arrays**. Each adapter factory returns a value whose `id` is a string literal (or an `id` override the caller supplies). TypeScript infers the union of registered IDs from the tuple, so downstream fields like `order.payment.adapter` are typed as the literal union of registered payment adapter IDs.
 
 ```ts
 export const commerce = createCommerce({
   database: drizzleAdapter(db, { schema }),
 
-  payment: {
-    moyasar: moyasar({ secretKey: env.MOYASAR_SECRET }),
-    tabby: tabby({ apiKey: env.TABBY_API_KEY }),
-  },
+  payments: [
+    moyasar({ secretKey: env.MOYASAR_SECRET }),
+    tabby({ apiKey: env.TABBY_API_KEY }),
+  ],
 
-  fulfillment: {
-    shipping: shippo({ apiKey: env.SHIPPO_API_KEY }),
-    riyadhDelivery: localDelivery(),
-    pickup: storePickup(),
-  },
+  fulfillments: [
+    pickupFulfillment(),
+    digitalFulfillment(),
+  ],
 
-  storage: {
-    media: r2({ bucket: env.R2_BUCKET, accountId: env.CF_ACCOUNT_ID }),
-  },
+  delivery: [
+    localDelivery({ id: 'riyadh' }),
+    localDelivery({ id: 'jeddah' }),
+  ],
 
-  payout: {
-    hyperpay: hyperpay({ apiKey: env.HYPERPAY_API_KEY }),
-  },
+  storage: [r2({ bucket: env.R2_BUCKET, accountId: env.CF_ACCOUNT_ID })],
 
-  scheduler: {
-    jobs: bullmq({ redis: env.REDIS_URL }),
-  },
+  payout: [hyperpay({ apiKey: env.HYPERPAY_API_KEY })],
+
+  scheduler: bullmq({ redis: env.REDIS_URL }),
 
   plugins: [coupons(), marketplace()],
 })
 ```
 
-`database` is a single required adapter (not an object) because only one database adapter is active at a time. All optional adapter slots (`payment`, `fulfillment`, `storage`, `payout`, `scheduler`) accept objects and are dormant when omitted.
+`database` and `scheduler` are single adapters (not arrays) because only one of each is active at a time. All other optional adapter slots accept arrays and are dormant when omitted or empty.
+
+Each factory may accept an optional `id` override to disambiguate multiple instances of the same provider — `localDelivery({ id: 'riyadh' })` vs `localDelivery({ id: 'jeddah' })`. Without an override, the factory's default `id` is used. Duplicate IDs across a slot are rejected at startup.
 
 ## Packaging model
 
@@ -183,16 +183,16 @@ Each successful void or refund appends a new row to the payment ledger; the orig
 
 ```ts
 createCommerce({
-  payment: {
-    moyasar: moyasar({ secretKey: env.MOYASAR_SECRET }),
-    tabby: tabby({ apiKey: env.TABBY_API_KEY }),
-  },
+  payments: [
+    moyasar({ secretKey: env.MOYASAR_SECRET }),
+    tabby({ apiKey: env.TABBY_API_KEY }),
+  ],
 })
 ```
 
-The config key is the adapter ID. TypeScript infers the literal union `'moyasar' | 'tabby'` from the object keys, so passing an unknown `adapterId` at checkout is a compile error.
+Each factory's return type carries a literal `id`. TypeScript infers the union `'moyasar' | 'tabby'` from the tuple, so passing an unknown `adapterId` at checkout is a compile error.
 
-At checkout, the caller selects the adapter by key:
+At checkout, the caller selects the adapter by ID:
 
 ```ts
 await commerce.orders.checkout({
@@ -201,7 +201,7 @@ await commerce.orders.checkout({
 })
 ```
 
-Webhook URLs follow the same key convention: `/webhooks/payment/moyasar`, `/webhooks/payment/tabby`.
+Webhook URLs follow the same convention: `/webhooks/payment/moyasar`, `/webhooks/payment/tabby`.
 
 The payment persistence model distinguishes between:
 
@@ -232,7 +232,7 @@ The compile-time removal of dormant surface area is specified in [60-type-infere
 
 ## Fulfillment adapter
 
-Fulfillment is optional and dormant until configured via `createCommerce({ fulfillment: { ... } })`.
+Fulfillment is optional and dormant until configured via `createCommerce({ fulfillments: [ ... ] })`.
 
 Fulfillment is the public abstraction for carrier shipping, local delivery, pickup, and digital delivery. The public API is unified even when provider adapters have different capabilities.
 
@@ -264,16 +264,16 @@ interface FulfillmentCapabilities {
 
 Adapters consume `order.fulfillmentTypeData` (the typed payload validated against the registered schema) directly inside their handlers. They do not register types — they only consume them.
 
-Config uses an object. The key is the adapter ID, inferred as a literal type. Multiple instances of the same adapter factory are supported naturally:
+Config uses an array. The factory's return type carries the `id` as a literal. Multiple instances of the same adapter factory pass an explicit `id` override:
 
 ```ts
 createCommerce({
-  fulfillment: {
-    shipping: shippo({ apiKey: env.SHIPPO_API_KEY }),
-    riyadhDelivery: localDelivery(),
-    jeddahDelivery: localDelivery(),
-    pickup: storePickup(),
-  },
+  fulfillments: [
+    shippo({ apiKey: env.SHIPPO_API_KEY }),
+    localDelivery({ id: 'riyadh' }),
+    localDelivery({ id: 'jeddah' }),
+    storePickup(),
+  ],
 })
 ```
 
@@ -346,9 +346,7 @@ Config:
 
 ```ts
 createCommerce({
-  storage: {
-    media: r2({ bucket: env.R2_BUCKET, accountId: env.CF_ACCOUNT_ID }),
-  },
+  storage: [r2({ bucket: env.R2_BUCKET, accountId: env.CF_ACCOUNT_ID })],
 })
 ```
 
@@ -374,9 +372,7 @@ Config:
 
 ```ts
 createCommerce({
-  payout: {
-    hyperpay: hyperpay({ apiKey: env.HYPERPAY_API_KEY }),
-  },
+  payout: [hyperpay({ apiKey: env.HYPERPAY_API_KEY })],
 })
 ```
 
@@ -409,9 +405,7 @@ Config:
 
 ```ts
 createCommerce({
-  scheduler: {
-    jobs: bullmq({ redis: env.REDIS_URL }),
-  },
+  scheduler: bullmq({ redis: env.REDIS_URL }),
 })
 ```
 

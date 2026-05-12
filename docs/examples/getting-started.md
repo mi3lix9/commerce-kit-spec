@@ -64,7 +64,7 @@ export const commerce = createCommerce({
     }),
   ],
 
-  fulfillment: [
+  fulfillments: [
     aramexFulfillment({
       accountNumber: env.ARAMEX_ACCOUNT_NUMBER,
       accountPin: env.ARAMEX_ACCOUNT_PIN,
@@ -84,7 +84,7 @@ Notes about the shape above:
 
 - `database` is the required persistence boundary for all core reads and writes.
 - `payments` is required and may contain more than one provider over time.
-- `fulfillment` is optional and may include carrier shipping, local delivery, pickup, or digital fulfillment adapters behind one public API.
+- `fulfillments` is optional and may include carrier shipping, local delivery, pickup, or digital fulfillment adapters behind one public API.
 - `plugins` extend behavior without changing core adapter ownership. In this starter example, the plugin is still core-store-oriented rather than marketplace-oriented.
 - `resolveContext` is intentionally not configured inline here; the framework layer below supplies it from app-owned auth/session code.
 - Package choices use the main example packages described in the architecture docs where available.

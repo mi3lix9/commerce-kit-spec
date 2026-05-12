@@ -173,7 +173,7 @@ Resolution happens at calculation time via the `calculation:resolvePipeline` hoo
 ```ts
 createCommerce({
   database: ...,
-  payment: { moyasar: ... },
+  payments: [moyasar({ ... })],
   plugins: [pricingRulesPlugin()],
 
   calculation: {

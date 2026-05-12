@@ -17,43 +17,43 @@ The delivery pricing strategies that compute fees for these adapters live in [55
 
 ## Core decisions
 
-- Delivery adapters live in their own top-level config slot: `delivery: { ... }`.
-- The slot is keyed by adapter ID (literal-typed at compile time).
+- Delivery adapters live in their own top-level config slot: `delivery: [ ... ]`.
+- The slot is an array of adapter factory calls; each factory's return type carries a literal `id` (with optional `id` override for multi-instance use).
 - The `DeliveryAdapter` interface is purpose-built for driver dispatch. It does not share an interface with pickup, shipping, or carrier adapters.
 - Adapters are dispatch-only. Fee calculation lives in delivery pricing strategies, not in the adapter.
 - Multiple delivery adapters may be registered. Each delivery method picks one adapter via `adapter`.
 - Adapters declare capabilities as **literal types**, not runtime booleans — TS refuses `commerce.delivery.cancel(...)` at compile time on adapters that don't support cancellation.
-- Dispatch on order confirmation is **on by default**. Apps opt out via `delivery: { autoDispatch: false }` and call `commerce.delivery.create()` manually if they need full control.
+- Dispatch on order confirmation is **on by default**. Apps opt out via `orders: { autoDispatchDelivery: false }` and call `commerce.delivery.create()` manually if they need full control.
 
 ## Config slot
 
 ```ts
 createCommerce({
   database: drizzleAdapter(db, { schema }),
-  payment: { moyasar: moyasar({ secretKey: env.MOYASAR_SECRET }) },
+  payments: [moyasar({ secretKey: env.MOYASAR_SECRET })],
 
-  delivery: {
-    local: localDelivery(),
-    leajlak: leajlakDelivery({ apiKey: env.LEAJLAK }),
-    parcel: parcelDelivery({ apiKey: env.PARCEL }),
-    qmile: qmileDelivery({ apiKey: env.QMILE }),
-  },
+  delivery: [
+    localDelivery(),
+    leajlakDelivery({ apiKey: env.LEAJLAK }),
+    parcelDelivery({ apiKey: env.PARCEL }),
+    qmileDelivery({ apiKey: env.QMILE }),
+  ],
 })
 ```
 
 The `delivery` slot is optional. When omitted (or empty), delivery-related features are dormant — no schema, no SDK surface, no HTTP routes.
 
-Config keys become a literal union: `'local' | 'leajlak' | 'parcel' | 'qmile'`. The `deliveryMethod.adapter` field is type-checked against this union at compile time.
+Each factory's return type carries a literal `id`. TypeScript infers the union `'local' | 'leajlak' | 'parcel' | 'qmile'` from the tuple. The `deliveryMethod.adapter` field is type-checked against this union at compile time.
 
-Pricing strategies are passed inline to each method via typed factories — see [55-delivery-pricing.md](./55-delivery-pricing.md). There is no separate registration step for built-in strategies; the `deliveryPricing: {}` slot exists only for registering custom strategies.
+Pricing strategies are declared at app boot via the sibling `deliveryPricing: []` slot and passed inline to each method via typed factories — see [55-delivery-pricing.md](./55-delivery-pricing.md).
 
-### Optional slot-level config
+### Auto-dispatch behavior
+
+Dispatch on order confirmation is on by default. To opt out:
 
 ```ts
-delivery: {
-  autoDispatch: true,    // default: dispatch on 'orders:confirmed'. Set false to gate manually.
-  local: localDelivery(),
-  ...
+orders: {
+  autoDispatchDelivery: false,    // default: true
 }
 ```
 
@@ -101,8 +101,9 @@ type CreateDeliveryResult = {
 Example:
 
 ```ts
-export function leajlakDelivery({ apiKey }: { apiKey: string }) {
+export function leajlakDelivery({ apiKey, id = 'leajlak' as const }: { apiKey: string; id?: string }) {
   return {
+    id,
     capabilities: {
       cancellation: true,
       realtimeTracking: true,
@@ -178,7 +179,7 @@ The `pricing` argument is a discriminated union of strategy factory outputs. TS 
 
 Validation at write time:
 - `adapter` must reference a registered delivery adapter
-- `pricing.strategy` must reference a strategy known to core (built-in or registered in `deliveryPricing`)
+- `pricing.strategy` must reference a strategy registered in `deliveryPricing: []` (built-in or custom)
 - Strategy settings are already type-checked at the factory call site, so runtime `validateSettings` becomes a defense-in-depth check rather than the primary gate
 
 ## Order fields when delivery is used
@@ -224,7 +225,7 @@ commerce.delivery.{create, cancel, get, list, track}
 
 `commerce.delivery.create({ orderId })` is the explicit dispatch operation. It resolves the order's `deliveryMethodId`, calls `adapter.createDelivery(ctx)`, persists the provider reference, and emits the initial delivery transition.
 
-**Auto-dispatch is the default.** When `delivery.autoDispatch` is unset or `true`, core subscribes to `orders:confirmed` and runs `commerce.delivery.create` for any order with a non-null `deliveryMethodId`. Apps that need full control over dispatch timing set `autoDispatch: false` and call `commerce.delivery.create` themselves.
+**Auto-dispatch is the default.** When `orders.autoDispatchDelivery` is unset or `true`, core subscribes to `orders:confirmed` and runs `commerce.delivery.create` for any order with a non-null `deliveryMethodId`. Apps that need full control over dispatch timing set `autoDispatchDelivery: false` and call `commerce.delivery.create` themselves.
 
 Admin tooling can always call `commerce.delivery.create` directly to re-dispatch a failed delivery regardless of the auto-dispatch setting.
 

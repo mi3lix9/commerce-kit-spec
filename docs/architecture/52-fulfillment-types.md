@@ -25,8 +25,8 @@ Plugin authoring surface for fulfillment types lives in [40-plugin-system.md](./
 The fulfillment type registry is populated at `createCommerce()` startup from three sources:
 
 1. Core's built-in types
-2. Inline types declared in `createCommerce({ fulfillment: { types } })`
-3. Types contributed by installed plugins via `plugin({ fulfillment: { types } })`
+2. Inline types declared in `createCommerce({ fulfillments: [ ... ] })` via type factories
+3. Types contributed by installed plugins via `plugin({ fulfillments: [ ... ] })`
 
 Each entry has the shape:
 
@@ -76,21 +76,19 @@ These are normative defaults. Apps that want different shapes for the core types
 
 ```ts
 plugin('restaurant', {
-  fulfillment: {
-    types: {
-      'restaurant:dinein': {
-        data: z.object({
-          tableNumber: z.string(),
-        }),
-      },
-      'restaurant:curbside': {
-        data: z.object({
-          carPlateNumber: z.string(),
-          parkingNumber: z.string(),
-        }),
-      },
-    },
-  },
+  fulfillments: [
+    fulfillmentType('restaurant:dinein', {
+      data: z.object({
+        tableNumber: z.string(),
+      }),
+    }),
+    fulfillmentType('restaurant:curbside', {
+      data: z.object({
+        carPlateNumber: z.string(),
+        parkingNumber: z.string(),
+      }),
+    }),
+  ],
 })
 ```
 
@@ -102,16 +100,14 @@ Apps that need one custom type without writing a plugin register inline:
 
 ```ts
 createCommerce({
-  fulfillment: {
-    types: {
-      'my-app:locker': {
-        data: z.object({
-          lockerNumber: z.string(),
-          pin: z.string(),
-        }),
-      },
-    },
-  },
+  fulfillments: [
+    fulfillmentType('my-app:locker', {
+      data: z.object({
+        lockerNumber: z.string(),
+        pin: z.string(),
+      }),
+    }),
+  ],
   plugins: [restaurant()],
 })
 ```
@@ -200,7 +196,7 @@ This is the only runtime read against the registry. Validation at write time is 
 ## Cross-links
 
 - Fulfillment adapter contract: [50-adapter-system.md](./50-adapter-system.md)
-- Plugin authoring surface (`fulfillment.types` contract): [40-plugin-system.md](./40-plugin-system.md)
+- Plugin authoring surface (`fulfillments` contract): [40-plugin-system.md](./40-plugin-system.md)
 - Type inference for `fulfillmentTypeData` narrowing: [60-type-inference.md](./60-type-inference.md)
 - Order persistence: [20-data-model.md](./20-data-model.md)
 - Server SDK for `commerce.fulfillment.*`: [25-server-sdk.md](./25-server-sdk.md)

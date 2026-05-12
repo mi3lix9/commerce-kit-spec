@@ -26,7 +26,7 @@ Define how Commerce Kit handles multi-merchant and multi-branch deployments. Ten
 ```ts
 createCommerce({
   database: drizzleAdapter(db, { schema }),
-  payment: { moyasar: ... },
+  payments: [moyasar({ ... })],
 
   // Simple store — tenancy not declared
 })
