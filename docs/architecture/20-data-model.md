@@ -36,7 +36,9 @@ Any attribute set defines a variant. Each variant owns its price and currency. V
 
 Core fields: `id`, `customerId`, `status`, `subtotal`, `discountTotal`, `taxTotal`, `fulfillmentTotal`, `total`, `currency`, `paymentAdapterId`, `paymentReference`, `metadata`, `pluginData`, `createdAt`, `updatedAt`
 
-Conditionally materialized fulfillment fields: `fulfillmentMethodId`, `fulfillmentType`, `fulfillmentAdapterId`
+Conditionally materialized fulfillment fields: `fulfillmentMethodId`, `fulfillmentType`, `fulfillmentTypeData`, `fulfillmentAdapterId`
+
+`fulfillmentType` references a type ID in the open type registry (core types like `'pickup'` or plugin types like `'restaurant:dinein'`). `fulfillmentTypeData` is a jsonb payload validated at write time against the registered schema for that type — see [52-fulfillment-types.md](./52-fulfillment-types.md).
 
 Tenancy: `merchant()` required when `tenancy.merchants` is on, `branch().optional()` when `tenancy.branches` is on. An order belongs to exactly one merchant (cross-merchant carts produce one order per merchant via the marketplace `orderGroup` parent — see [45-marketplace-mode.md](./45-marketplace-mode.md)).
 

@@ -272,6 +272,7 @@ commerce.orders.checkout({
   items: { variantId: string; quantity: number }[]
   customerId?: string            // null for guest checkout
   fulfillmentMethodId?: string   // required when fulfillment is configured
+  fulfillmentTypeData?: unknown  // typed payload validated against the method's type schema
   payment: {
     adapterId: string            // typed as union of registered payment adapter keys
     metadata?: Record<string, unknown>  // adapter-specific fields
@@ -588,6 +589,20 @@ commerce.branches.archive({ id: string }): Promise<Branch>
 
 `fulfillment` exists only when at least one fulfillment adapter is configured. See [50-adapter-system.md](./50-adapter-system.md).
 
+### `fulfillment.types.list`
+
+Returns the full fulfillment type registry — core types plus any plugin or inline contributions. Used by admin UIs building the "create fulfillment method" form.
+
+```ts
+commerce.fulfillment.types.list(): Promise<{
+  id: string                       // 'pickup' or 'restaurant:dinein'
+  description: string | null
+  dataSchema: JsonSchema           // serializable form of the Zod schema
+}[]>
+```
+
+See [52-fulfillment-types.md](./52-fulfillment-types.md) for registration semantics.
+
 ### `fulfillment.methods.list`
 
 ```ts
@@ -611,13 +626,15 @@ commerce.fulfillment.methods.get({ id: string }): Promise<FulfillmentMethod>
 ```ts
 commerce.fulfillment.methods.create({
   adapterId: string   // typed as union of registered fulfillment adapter keys
-  type: 'shipping' | 'delivery' | 'pickup' | 'digital'
+  type: string        // a registered fulfillment type ID; the adapter must handle it
   name: string
   enabled?: boolean
   pricing: FulfillmentPricing
   settings?: Record<string, unknown>
 }): Promise<FulfillmentMethod>
 ```
+
+`type` must be a value from the fulfillment type registry, and the chosen `adapterId` must declare support for it. Validation rejects mismatches at write time.
 
 ### `fulfillment.methods.update`
 

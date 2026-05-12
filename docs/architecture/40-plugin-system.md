@@ -78,6 +78,7 @@ type Plugin = {
   operations?: PluginOperations     // typed namespace additions to commerce.*
   on?: PluginHandlers               // keyed lifecycle handlers
   calculation?: PluginCalculation   // named pricing pipeline steps
+  fulfillment?: PluginFulfillment   // fulfillment type contributions
 
   tasks?: PluginTasks               // named tasks for commerce.tasks.run
   webhooks?: PluginWebhooks         // verified-event handlers
@@ -288,6 +289,30 @@ For each operation:
 7. `runInBackground` callbacks execute post-commit
 
 Wildcards run alongside exact matches in declaration order — there is no priority between specific and wildcard handlers within a plugin.
+
+## `fulfillment.types`
+
+Plugins contribute fulfillment types to core's open type registry. Each type declares a typed `data` schema validated when orders reference the type. Full semantics in [52-fulfillment-types.md](./52-fulfillment-types.md).
+
+```ts
+plugin('restaurant', {
+  fulfillment: {
+    types: {
+      'restaurant:dinein': {
+        data: z.object({ tableNumber: z.string() }),
+      },
+      'restaurant:curbside': {
+        data: z.object({
+          carPlateNumber: z.string(),
+          parkingNumber: z.string(),
+        }),
+      },
+    },
+  },
+})
+```
+
+Type IDs must use the `<plugin-id>:<name>` convention. Core pre-registers `'shipping'`, `'delivery'`, `'pickup'`, `'digital'` with their own schemas; plugin types are equal citizens in the registry.
 
 ## `calculation`
 

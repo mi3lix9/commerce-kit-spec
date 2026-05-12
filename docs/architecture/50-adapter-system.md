@@ -238,7 +238,7 @@ Fulfillment is the public abstraction for carrier shipping, local delivery, pick
 
 ```ts
 interface FulfillmentAdapter {
-  types: FulfillmentMethodType[]
+  types: string[]                // type IDs from the fulfillment type registry
   capabilities: FulfillmentCapabilities
 
   listMethods?(ctx: ListFulfillmentMethodsContext): Promise<FulfillmentMethodCandidate[]>
@@ -248,8 +248,6 @@ interface FulfillmentAdapter {
   createLabel?(ctx: CreateLabelContext): Promise<FulfillmentLabel>
   verifyWebhook?(payload: unknown, signature: string): Promise<FulfillmentWebhookEvent>
 }
-
-type FulfillmentMethodType = "shipping" | "delivery" | "pickup" | "digital"
 
 interface FulfillmentCapabilities {
   rates?: boolean
@@ -261,6 +259,10 @@ interface FulfillmentCapabilities {
   digitalDelivery?: boolean
 }
 ```
+
+`types` is an array of type IDs from the fulfillment type registry. Core pre-registers `'shipping'`, `'delivery'`, `'pickup'`, `'digital'`; plugins or inline config contribute additional types like `'restaurant:dinein'`. The adapter declares which subset it handles. See [52-fulfillment-types.md](./52-fulfillment-types.md) for registration, schemas, and validation.
+
+Adapters consume `order.fulfillmentTypeData` (the typed payload validated against the registered schema) directly inside their handlers. They do not register types — they only consume them.
 
 Config uses an object. The key is the adapter ID, inferred as a literal type. Multiple instances of the same adapter factory are supported naturally:
 

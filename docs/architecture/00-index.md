@@ -31,6 +31,7 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 - [Pricing rules plugin](./44-pricing-rules-plugin.md) — `@commerce-kit/pricing-rules`: `discount` / `tax` / `serviceCharge` entities and the three canonical calculation steps
 - [Marketplace mode](./45-marketplace-mode.md) — `tenancy.checkout: 'split'`, order groups, cross-merchant carts, and commission boundary
 - [Adapter system](./50-adapter-system.md) — database and provider adapter contracts, dormant activation, and fulfillment model boundaries
+- [Fulfillment types](./52-fulfillment-types.md) — open type registry with typed data schemas, plugin and inline contributions, validation rules
 - [Type inference](./60-type-inference.md) — `createCommerce()`-driven type flow and compile-time guarantees
 - [Packages and monorepo](./70-packages-and-monorepo.md) — tooling stack, package map, build conventions, and release rules
 - [Framework adapters](./80-framework-adapters.md) — HTTP exposure, route handlers, request context, webhooks, and client SDK rules
@@ -52,10 +53,11 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 12. [Pricing rules plugin](./44-pricing-rules-plugin.md)
 13. [Marketplace mode](./45-marketplace-mode.md)
 14. [Adapter system](./50-adapter-system.md)
-15. [Type inference](./60-type-inference.md)
-16. [Packages and monorepo](./70-packages-and-monorepo.md)
-17. [Framework adapters](./80-framework-adapters.md)
-18. [CLI and tooling](./90-cli-and-tooling.md)
+15. [Fulfillment types](./52-fulfillment-types.md)
+16. [Type inference](./60-type-inference.md)
+17. [Packages and monorepo](./70-packages-and-monorepo.md)
+18. [Framework adapters](./80-framework-adapters.md)
+19. [CLI and tooling](./90-cli-and-tooling.md)
 
 ## Reading rules
 
