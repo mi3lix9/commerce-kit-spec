@@ -269,6 +269,9 @@ export const vipTier = defineStrategy({
     return { amount: settings.tier === 'gold' ? money(500, 'SAR') : money(0, 'SAR') }
   },
 })
+
+// `settings` accepts any Standard Schema (Zod, Valibot, Arktype, Effect Schema).
+// Examples use Zod for readability. See [47-validation.md](./47-validation.md).
 ```
 
 The `vipTier` value:

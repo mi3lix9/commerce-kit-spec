@@ -32,10 +32,12 @@ Each entry has the shape:
 
 ```ts
 type FulfillmentTypeRegistration = {
-  data: ZodSchema                  // validated at order write time
+  data: StandardSchemaV1           // validated at order write time
   description?: string             // optional, surfaced via the discovery API
 }
 ```
+
+`data` accepts any Standard Schema-compatible value (Zod, Valibot, Arktype, Effect Schema). Examples below use Zod for readability. See [47-validation.md](./47-validation.md).
 
 ## Core types
 

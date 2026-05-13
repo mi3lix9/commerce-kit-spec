@@ -30,6 +30,7 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 - [Background tasks](./43-background-tasks.md) — immediate side effects, deferred tasks via scheduler adapter, and recurring tasks via `commerce.tasks`
 - [Pricing rules plugin](./44-pricing-rules-plugin.md) — `@commerce-kit/pricing-rules`: `discount` / `tax` / `serviceCharge` entities and the three canonical calculation steps
 - [Marketplace mode](./45-marketplace-mode.md) — `tenancy.checkout: 'split'`, order groups, cross-merchant carts, and commission boundary
+- [Validation](./47-validation.md) — Standard Schema contract for `operations.input`, fulfillment type `data`, delivery pricing `settings`, and webhook payloads
 - [Adapter system](./50-adapter-system.md) — database and provider adapter contracts, dormant activation, and fulfillment model boundaries
 - [Fulfillment types](./52-fulfillment-types.md) — open type registry with typed data schemas, plugin and inline contributions, validation rules
 - [Delivery adapters](./54-delivery-adapters.md) — `delivery: []` slot for driver-based dispatch adapters, `DeliveryAdapter` contract, `deliveryMethod` entity, lifecycle and webhooks
@@ -54,14 +55,15 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 11. [Background tasks](./43-background-tasks.md)
 12. [Pricing rules plugin](./44-pricing-rules-plugin.md)
 13. [Marketplace mode](./45-marketplace-mode.md)
-14. [Adapter system](./50-adapter-system.md)
-15. [Fulfillment types](./52-fulfillment-types.md)
-16. [Delivery adapters](./54-delivery-adapters.md)
-17. [Delivery pricing](./55-delivery-pricing.md)
-18. [Type inference](./60-type-inference.md)
-19. [Packages and monorepo](./70-packages-and-monorepo.md)
-20. [Framework adapters](./80-framework-adapters.md)
-21. [CLI and tooling](./90-cli-and-tooling.md)
+14. [Validation](./47-validation.md)
+15. [Adapter system](./50-adapter-system.md)
+16. [Fulfillment types](./52-fulfillment-types.md)
+17. [Delivery adapters](./54-delivery-adapters.md)
+18. [Delivery pricing](./55-delivery-pricing.md)
+19. [Type inference](./60-type-inference.md)
+20. [Packages and monorepo](./70-packages-and-monorepo.md)
+21. [Framework adapters](./80-framework-adapters.md)
+22. [CLI and tooling](./90-cli-and-tooling.md)
 
 ## Reading rules
 

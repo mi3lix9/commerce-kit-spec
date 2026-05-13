@@ -32,7 +32,7 @@ The supported first-party development toolchain uses Bun rather than pnpm.
 - Node.js 18+ runtime baseline for published packages
 - Bun 1.0+ required for the first-party monorepo workflow, scripts, and tests
 - Single public entry point per package: `src/index.ts`
-- Zero runtime dependencies in `commerce-kit` core
+- Zero third-party runtime dependencies in `commerce-kit` core. `@standard-schema/spec` is the single allowed peer dependency, declared in `peerDependencies` and shipping types only — it adds no runtime code. See [47-validation.md](./47-validation.md).
 - No circular dependencies
 
 ### Runtime and tooling requirements

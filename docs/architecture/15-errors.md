@@ -7,7 +7,7 @@ Define the Commerce Kit error model: the error class hierarchy, core error codes
 ## Non-goals
 
 - Framework-specific UI error handling (React, etc.)
-- Validation schema internals — only the output shape is defined here
+- Validation schema internals — only the output shape is defined here. See [47-validation.md](./47-validation.md) for the schema contract.
 - Repeating HTTP status mappings already listed in [80-framework-adapters.md](./80-framework-adapters.md)
 
 ## Core decisions
@@ -56,6 +56,8 @@ type ValidationIssue = {
   code: string
 }
 ```
+
+`issues` is normalized from the Standard Schema validation result at every boundary that accepts a schema — see [47-validation.md](./47-validation.md). The shape above is the canonical form regardless of which schema library produced the underlying issues.
 
 All error classes are exported from `commerce-kit` (server) and re-exported from `@commerce-kit/client`.
 

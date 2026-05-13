@@ -12,6 +12,7 @@ The plugin system is designed so that **plugins are tenancy-agnostic by default*
 - Core entity persistence rules — see [20-data-model.md](./20-data-model.md)
 - Hook context shapes and execution order — see [42-hooks.md](./42-hooks.md)
 - Adapter contracts — see [50-adapter-system.md](./50-adapter-system.md)
+- Schema validation contract for `operations.input` — see [47-validation.md](./47-validation.md)
 
 ## Core decisions
 
@@ -154,6 +155,8 @@ When a table declares `merchant()` and/or `branch()`, all reads and writes on th
 ## `operations`
 
 `operations` adds typed namespaces to `commerce.*`. Each operation declares its input schema and handler. The operation key follows `namespace:method` and must be unique across the system.
+
+The `input` field accepts any Standard Schema-compatible value (Zod, Valibot, Arktype, Effect Schema, etc.). Examples in this document use Zod for readability. See [47-validation.md](./47-validation.md) for the validation contract.
 
 ```ts
 operations: {
