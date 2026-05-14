@@ -115,18 +115,35 @@ Both default fields are settable via `commerce.merchants.update` and `commerce.b
 
 ## `DeliveryAdapter` interface
 
+The contract is designed so the adapter does one thing: translate between Commerce Kit's normalized shapes and the provider's wire format. Inputs arrive already normalized (the package extracts and computes them from the order, address book, payment, and method config); outputs are normalized too (the framework persists the same shape regardless of provider).
+
 ```ts
 interface DeliveryAdapter<C extends DeliveryCapabilities = DeliveryCapabilities> {
   capabilities: C
 
   createDelivery(ctx: CreateDeliveryContext): Promise<CreateDeliveryResult>
+
   cancelDelivery?: C['cancellation'] extends true
-    ? (ctx: CancelDeliveryContext) => Promise<void>
+    ? (ctx: CancelDeliveryContext) => Promise<CancelDeliveryResult>
     : never
+
   trackDelivery?: C['realtimeTracking'] extends true
-    ? (ctx: TrackDeliveryContext) => Promise<DeliveryStatus>
+    ? (ctx: TrackDeliveryContext) => Promise<TrackDeliveryResult>
     : never
-  verifyWebhook?(payload: unknown, signature: string): Promise<DeliveryEvent>
+
+  quoteDelivery?: C['quotation'] extends true
+    ? (ctx: QuoteDeliveryContext) => Promise<QuoteDeliveryResult>
+    : never
+
+  listDrivers?: C['driverSelection'] extends true
+    ? (ctx: ListDriversContext) => Promise<DriverInfo[]>
+    : never
+
+  getAirwayBill?: C['airwayBill'] extends true
+    ? (ctx: GetAirwayBillContext) => Promise<AirwayBill>
+    : never
+
+  webhook?: DeliveryWebhookConfig
 }
 
 interface DeliveryCapabilities {
@@ -135,22 +152,260 @@ interface DeliveryCapabilities {
   proofOfDelivery: boolean       // signature/photo at handoff
   scheduling: boolean            // provider accepts scheduled dispatch windows
   estimatedTime: boolean         // provider returns ETA at dispatch
+  cashOnDelivery: boolean        // provider collects cash from recipient on handoff
+  multiStop: boolean             // provider accepts multiple delivery stops in one task
+  vehicleSelection: boolean      // provider accepts a vehicle type hint at dispatch
+  airwayBill: boolean            // provider returns a printable AWB / shipping label
+  driverContact: boolean         // provider exposes driver name/phone (independent of live tracking)
+  driverSelection: boolean       // merchant can pick a specific driver at dispatch
+  quotation: boolean             // provider returns a binding fee quote pre-dispatch
+  returnFlow: boolean            // provider supports return-to-sender lifecycle ('returned' state)
+}
+```
+
+### Inputs — what the framework hands the adapter
+
+Inputs are pre-computed by Commerce Kit. The adapter never reaches into `order.payment`, `order.metadata`, or merchant settings to derive a value — if it needs something, the framework puts it on the context.
+
+```ts
+type CreateDeliveryContext = {
+  order: NormalizedOrder         // id, currency, totals, notes, payment.method, fulfillmentTypeData
+  recipient: Recipient           // pre-extracted from order.customer + delivery address
+  deliveryAddress: Address       // structured + formatted single-line
+  branchAddress?: Address        // pickup origin (when tenancy.branches is on)
+  method: DeliveryMethod         // the resolved deliveryMethod row, incl. metadata
+  cashOnDelivery?: Money         // present when capabilities.cashOnDelivery AND order.payment.method === 'cod'
+  scheduledPickupAt?: Date       // present when capabilities.scheduling AND the order requested a window
+  vehicleHint?: VehicleType      // present when capabilities.vehicleSelection AND a hint was supplied
+  preferredDriverId?: string     // present when capabilities.driverSelection AND a driver was picked
+  stops?: DeliveryStop[]         // present when capabilities.multiStop AND the order is multi-drop
+  request: RequestContext        // idempotencyKey, locale, requestedAt
 }
 
-type CreateDeliveryContext = {
-  order: Order
-  deliveryAddress: Address
-  branchAddress?: Address        // origin (present when tenancy.branches is on)
+type CancelDeliveryContext = {
+  providerReference: string
+  reasonCode?: CancellationCode         // structured code for providers that require one
+  reason?: string                       // free-text detail; falls back to a default when the provider needs something
   method: DeliveryMethod
   request: RequestContext
 }
 
+type CancellationCode =
+  | 'merchant_request'         // merchant changed their mind
+  | 'customer_request'         // customer asked to cancel
+  | 'address_invalid'          // dispatched against a bad address
+  | 'duplicate'                // cancelling a double-dispatch
+  | 'fraud_suspected'
+  | 'other'
+
+type TrackDeliveryContext = {
+  providerReference: string
+  method: DeliveryMethod
+  request: RequestContext
+}
+
+type QuoteDeliveryContext = {
+  // Same shape as CreateDeliveryContext minus the order reference — quotes are
+  // generated pre-dispatch, often before an order id even exists. The framework
+  // synthesizes a transient context from the cart and the resolved method.
+  recipient: Recipient
+  deliveryAddress: Address
+  branchAddress?: Address
+  method: DeliveryMethod
+  scheduledPickupAt?: Date
+  vehicleHint?: VehicleType
+  stops?: DeliveryStop[]
+  request: RequestContext
+}
+
+type ListDriversContext = {
+  method: DeliveryMethod
+  branchAddress?: Address        // for proximity-aware listings
+  request: RequestContext
+}
+
+type GetAirwayBillContext = {
+  providerReference: string
+  method: DeliveryMethod
+  format?: 'pdf' | 'png'         // hint; provider may ignore
+  request: RequestContext
+}
+
+type DeliveryStop = {
+  id: string                     // Commerce Kit-side stop id (stable across re-dispatch)
+  recipient: Recipient
+  address: Address
+  cashOnDelivery?: Money         // per-stop COD when capabilities.cashOnDelivery is true
+  notes?: string
+}
+
+type Recipient = {
+  name: string
+  phone: string
+  email?: string
+}
+
+type Address = {
+  formatted: string              // single-line display ("123 King Fahd Rd, Riyadh 12345")
+  components?: AddressComponents // structured fields; see below
+  coordinates?: Coordinates      // always present for delivery addresses; optional for branch
+  notes?: string                 // gate code, floor, "ring buzzer twice"
+}
+
+type AddressComponents = {
+  line1: string                  // primary street line
+  line2?: string                 // apartment, unit, suite
+  district?: string              // neighbourhood / 'حي' in KSA, 'منطقة' in BH
+  city: string
+  region?: string                // province / state / emirate
+  postalCode?: string
+  country: string                // ISO 3166-1 alpha-2 ('SA', 'BH', 'AE')
+}
+
+type Coordinates = { lat: number; lng: number }
+
+type VehicleType = 'bike' | 'motorcycle' | 'car' | 'van' | 'truck'
+```
+
+### Outputs — what the framework expects back
+
+Every method returns a normalized result. The provider's raw payload always travels on `raw` so plugins and admin UIs can inspect it; `metadata` is for adapter-specific extras that don't fit the normalized shape but are not the raw payload itself.
+
+```ts
 type CreateDeliveryResult = {
-  providerReference: string      // adapter's reference for this dispatch
+  providerReference: string             // operational ref for downstream calls back into the provider
+  customerTrackingNumber?: string       // customer-facing tracking string ("QM-2026-100123"); shown on order page / SMS
+  state: DeliveryState                  // typically 'dispatched'; 'failed' allowed when provider declines at create time
   estimatedArrival?: Date
+  fee?: Money                           // present when the provider returns a per-dispatch fee
+  driver?: DriverInfo                   // present when capabilities.driverContact AND a driver is assigned at create time
+  airwayBill?: AirwayBill               // present when capabilities.airwayBill is true
+  reason?: string                       // human-readable explanation when state === 'failed'
+  failureReason?: FailureReason         // structured classification when state === 'failed'
   metadata?: Record<string, unknown>
+  raw: unknown                          // the untouched provider payload
+}
+
+type FailureReason = {
+  code:
+    | 'recipient_unavailable'    // doorbell unanswered, recipient phone unreachable
+    | 'address_invalid'          // bad lat/lng or unreachable address
+    | 'refused'                  // recipient refused the package
+    | 'no_drivers'               // provider has no available drivers
+    | 'rate_limited'             // provider throttled the dispatch
+    | 'provider_error'           // 5xx, network, malformed response
+    | 'unknown'                  // adapter couldn't classify
+  message: string                // provider-supplied human-readable detail
+}
+
+type QuoteDeliveryResult = {
+  fee: Money                     // binding fee the provider will charge if the same payload is dispatched
+  estimatedArrival?: Date
+  validUntil?: Date              // quote expiry; absent means single-use
+  vehicleType?: VehicleType      // the vehicle the quote was priced against
+  quoteId?: string               // pass to createDelivery's method.metadata to lock the quote
+  raw: unknown
+}
+
+type CancelDeliveryResult = {
+  providerReference: string
+  state: 'cancelled' | 'failed'         // 'failed' when provider rejects (e.g., post-pickup)
+  reason?: string
+  failureReason?: FailureReason         // structured classification when state === 'failed'
+  raw: unknown
+}
+
+type TrackDeliveryResult = {
+  providerReference: string
+  customerTrackingNumber?: string
+  state: DeliveryState
+  estimatedArrival?: Date
+  currentLocation?: Coordinates         // present when capabilities.realtimeTracking is true AND a driver is moving
+  driver?: DriverInfo
+  proof?: ProofOfDelivery               // present when state === 'delivered' AND capabilities.proofOfDelivery is true
+  history?: DeliveryTransition[]        // ordered audit trail if the provider returns one
+  failureReason?: FailureReason         // present when state === 'failed'
+  metadata?: Record<string, unknown>
+  raw: unknown
+}
+
+type DriverInfo = {
+  id: string                     // provider-side driver id; round-trips as ctx.preferredDriverId on createDelivery
+  name: string
+  phone?: string
+  photoUrl?: string
+  vehicle?: { type?: VehicleType; plate?: string }
+  currentLocation?: Coordinates  // last known location at the time of the read
+  currentLoad?: number           // active orders / queue depth, when the provider exposes it
+}
+
+type AirwayBill = {
+  format: 'pdf' | 'png'
+  url?: string                   // when the provider serves it via a signed URL
+  data?: Uint8Array              // when the provider returns the file body inline
+}
+
+type ProofOfDelivery = {
+  signedAt: Date
+  signatureUrl?: string
+  photoUrl?: string
+  recipientName?: string
+  notes?: string
+}
+
+type DeliveryTransition = {
+  state: DeliveryState
+  at: Date
+  note?: string
 }
 ```
+
+### Webhook contract
+
+The webhook adapter returns a normalized `DeliveryEvent` — same shape regardless of provider. Plugins and the state machine consume `DeliveryEvent`, not the raw payload.
+
+```ts
+interface DeliveryWebhookConfig<TPayload = unknown, TOptions = unknown> {
+  signatureHeader?: string                            // default header name the framework reads from request.headers
+                                                      // (e.g., 'x-parcel-signature'). Merchants override per tenant via
+                                                      // options if their account is configured with a different name.
+  verify(input: { rawBody: string; headers: Record<string, string>; options: TOptions }): boolean
+  extract(rawBody: string): TPayload
+  providerReference(payload: TPayload): string
+  toEvent(payload: TPayload): DeliveryEvent           // <- the normalization seam
+  deliveryKey?(payload: TPayload): string             // webhook idempotency key
+}
+
+type DeliveryEvent =
+  | { kind: 'dispatched';  providerReference: string; estimatedArrival?: Date; raw: unknown }
+  | { kind: 'accepted';    providerReference: string; driver?: DriverInfo; raw: unknown }      // proposed (see states list)
+  | { kind: 'picked_up';   providerReference: string; pickedUpAt: Date; raw: unknown }         // proposed
+  | { kind: 'in_transit';  providerReference: string; currentLocation?: Coordinates; driver?: DriverInfo; raw: unknown }
+  | { kind: 'arrived';     providerReference: string; arrivedAt: Date; raw: unknown }          // proposed
+  | { kind: 'delivered';   providerReference: string; deliveredAt: Date; proof?: ProofOfDelivery; raw: unknown }
+  | { kind: 'returned';    providerReference: string; returnedAt: Date; reason?: string; raw: unknown }  // proposed
+  | { kind: 'cancelled';   providerReference: string; reason?: string; raw: unknown }
+  | { kind: 'failed';      providerReference: string; reason: string; raw: unknown }
+```
+
+### What the framework does with the normalized output
+
+| Field on result | What core does |
+|---|---|
+| `providerReference` | Persisted on `Delivery.providerReference`; the lookup key for every subsequent call back to this dispatch. |
+| `customerTrackingNumber` | Persisted on `Delivery.customerTrackingNumber`; surfaced on `commerce.delivery.get(id)` and customer-facing order pages. |
+| `state` | Transitions the `Delivery` row to that state; appended to the `deliveryTransition` log. |
+| `estimatedArrival` | Persisted on `Delivery.estimatedArrival`. |
+| `failureReason` | Persisted on the transition row; emitted on the `delivery:failed` event so plugins can branch on `failureReason.code` (e.g., retry on `no_drivers`, escalate on `address_invalid`). |
+| `driver`, `currentLocation` | Persisted on `Delivery.metadata.driver` / `.currentLocation`; exposed via `commerce.delivery.get(...)` in the normalized shape. |
+| `proof` | Persisted on `Delivery.metadata.proof`; only set on `delivered` transitions. |
+| `fee` | Persisted on `Delivery.metadata.providerFee`; useful when the merchant wants to reconcile the provider's billing against the strategy-computed fee on the order. |
+| `airwayBill` | Persisted (URL or stored blob via the storage adapter); exposed via `commerce.delivery.airwayBill(id)` when the capability is on. |
+| `reason` | Stored on the transition row, surfaced in error responses, included in the `deliveryFailed` event. |
+| `metadata` | Merged into `Delivery.metadata` (adapter extras the normalized shape doesn't model). |
+| `raw` | Stored on the transition row's `raw` column for forensics; never read by core logic. |
+
+Because outputs are normalized, `commerce.delivery.get(id)` returns the same shape regardless of which adapter dispatched — plugins, admin UIs, and customer-facing tracking pages are provider-agnostic.
 
 ### Persisted `Delivery` entity
 
@@ -162,14 +417,9 @@ type Delivery = {
   orderId: string
   methodId: string
   adapterId: string                                       // resolved delivery adapter id
-  providerReference: string | null                        // null until the adapter dispatches
-  state:
-    | 'pending'
-    | 'dispatched'
-    | 'in_transit'
-    | 'delivered'
-    | 'cancelled'
-    | 'failed'
+  providerReference: string | null                        // operational ref; null until the adapter dispatches
+  customerTrackingNumber: string | null                   // customer-facing tracking string; null when the provider doesn't expose one
+  state: DeliveryState
   estimatedArrival: Date | null
   metadata: Record<string, unknown> | null                // adapter-supplied payload
   merchant: MerchantId | null                             // present when tenancy.merchants is on
@@ -177,6 +427,22 @@ type Delivery = {
   createdAt: Date
   updatedAt: Date
 }
+```
+
+`DeliveryState` is the union exposed by the framework. Not every transition is mandatory — providers that don't emit a given state are simply absent from it (e.g., a provider that goes `dispatched → in_transit → delivered` skips `accepted`, `picked_up`, and `arrived`). Forward-only jumps are legal:
+
+```ts
+type DeliveryState =
+  | 'pending'        // row created, adapter not yet called (manual dispatch queue)
+  | 'dispatched'     // adapter accepted the request; no driver yet
+  | 'accepted'       // driver assigned and acknowledged the dispatch
+  | 'picked_up'      // package is in the driver's hands; cancellation often blocked from here
+  | 'in_transit'     // driver is moving (toward pickup or toward dropoff)
+  | 'arrived'        // driver at destination, awaiting handoff
+  | 'delivered'      // terminal: handoff complete
+  | 'returned'       // terminal: returned to sender (only when capabilities.returnFlow is true)
+  | 'cancelled'      // terminal: cancelled before delivery
+  | 'failed'         // terminal: provider rejected or delivery could not be completed
 ```
 
 State transitions flow through the `DeliveryEvent` stream (see below); apps should not mutate `delivery` rows directly.
@@ -204,6 +470,200 @@ export function leajlakDelivery({ apiKey, id = 'leajlak' as const }: { apiKey: s
 }
 ```
 
+### Authoring with `createDeliveryAdapter`
+
+The raw `DeliveryAdapter` interface is the contract; `createDeliveryAdapter` is the recommended way to author one. The helper is the delivery-slot sibling of [`createPaymentAdapter`](./50-adapter-system.md#authoring-with-createpaymentadapter) and owns the parts every adapter would otherwise repeat — literal-id inference, options validation, capability typing, a configured `fetch`, normalized state mapping, and the webhook flow shell — leaving the developer to write provider-specific logic: a configured fetch, a state mapper, and per-method request bodies.
+
+```ts
+import { createDeliveryAdapter } from "commerce-kit"
+import * as v from "valibot"
+
+export const myProvider = createDeliveryAdapter({
+  id: "my-provider",                                          // default literal id; overridable at call site
+  options: v.object({ apiKey: v.string() }),                  // Standard Schema; validated at createCommerce()
+
+  capabilities: {
+    cancellation: true,
+    realtimeTracking: false,
+    proofOfDelivery: true,
+    scheduling: true,
+    estimatedTime: true,
+  },
+
+  fetch: ({ options }) => (input, init) =>                    // returns a standard Response-returning fetch
+    globalThis.fetch(`https://api.example.com${input}`, {
+      ...init,
+      headers: { ...init?.headers, Authorization: `Bearer ${options.apiKey}` },
+    }),
+
+  createDelivery: async ({ fetch, ctx }) => {
+    const payload = await fetch("/dispatch", { method: "POST", body: JSON.stringify({ /* … */ }) }).then(r => r.json())
+    return {
+      providerReference: payload.id,
+      state: "dispatched",
+      estimatedArrival: payload.eta ? new Date(payload.eta) : undefined,
+      raw: payload,
+    } satisfies CreateDeliveryResult
+  },
+
+  cancelDelivery: async ({ fetch, providerReference }) => {
+    const payload = await fetch(`/dispatch/${providerReference}`, { method: "DELETE" }).then(r => r.json())
+    return { providerReference, state: "cancelled", raw: payload }
+  },
+
+  trackDelivery: async ({ fetch, providerReference }) => {
+    const payload = await fetch(`/dispatch/${providerReference}`).then(r => r.json())
+    return {
+      providerReference,
+      state: toState(payload.status),                         // local function the developer writes
+      currentLocation: payload.driver?.location,
+      driver: payload.driver && { name: payload.driver.name, phone: payload.driver.phone },
+      raw: payload,
+    }
+  },
+
+  webhook: {
+    verify: ({ rawBody, headers, options }) => /* boolean */,
+    extract: (raw) => JSON.parse(raw),
+    providerReference: (p) => p.id,
+    toEvent: (p) => ({
+      kind: toKind(p.status),                                 // local function: "dispatched" | "in_transit" | …
+      providerReference: p.id,
+      driver: p.driver && { name: p.driver.name, phone: p.driver.phone },
+      raw: p,
+    }),
+    deliveryKey: (p) => `${p.id}:${p.status}:${p.updated_at}`,
+  },
+})
+```
+
+Normative rules for the helper (these mirror `createPaymentAdapter` — cross-reference rather than restate):
+
+- **`id` lives on the factory**, not in `options`. Override at the call site for multi-instance setups: `myProvider({ id: "my-provider-eu", ... })`.
+- **`fetch` is standard Web fetch.** The factory returns a `(input, init) => Promise<Response>` closure. Authoring helpers (token caching, request signing, region routing) compose at the closure boundary, not via invented sugar methods.
+- **Capabilities are literal-typed.** Pass the object inline — the helper applies `as const` for you so `cancelDelivery` / `trackDelivery` are typed only when the matching capability is `true`. Declaring `cancellation: false` and shipping a `cancelDelivery` method is a compile error.
+- **The adapter owns the mapping.** Each method body translates the provider payload into the normalized output shape (`CreateDeliveryResult`, `TrackDeliveryResult`, `CancelDeliveryResult`, `DeliveryEvent`). The framework does not run a generic "status mapper" — there is no `mapState` config field. State derivation is a normal local function the developer writes and reuses across methods and `webhook.toEvent`.
+- **`raw` is required on every output.** The full provider payload travels on `raw` so plugins, admin UIs, and forensics can inspect it; core logic never reads it.
+- **Inputs are pre-computed.** `ctx.recipient.name`, `ctx.recipient.phone`, `ctx.cashOnDelivery`, `ctx.scheduledPickupAt`, `ctx.vehicleHint`, and `ctx.deliveryAddress` arrive already normalized. The method body never reaches into `ctx.order.payment` or `ctx.order.metadata` to derive these — if a needed value is missing, the framework's normalization layer is the bug, not the adapter.
+- **Methods may short-circuit with `state: 'failed'`** for cases where the provider returns `200` but rejects the dispatch in the payload body (analogous to Tabby's pre-scoring rejection on the payment side).
+- **`webhook.verify` returns a boolean.** HMAC providers `timingSafeEqual` on digests; header-token providers do a constant-time string compare. The framework rejects with `CommerceWebhookError` on `false`. The verified payload flows through `extract` → `toEvent` to produce a `DeliveryEvent`.
+- **Method throws → `state: 'failed'`.** Any `CommerceProviderError` thrown inside a method is caught by the framework and surfaced as a failed dispatch with the error's `message` as the `reason`. Other throws bubble.
+
+The raw `DeliveryAdapter` contract remains legal for adapters that need to escape every helper convention (in-house drivers pushing onto a Redis queue, providers with non-fetch transports). `createDeliveryAdapter` produces a `DeliveryAdapter` and is fully interoperable.
+
+Worked examples:
+
+- [`docs/examples/parcel-adapter.md`](../examples/parcel-adapter.md) — OAuth2 token caching, branch-bound credentials, region-routed cancel endpoints, `quoteDelivery` + `getAirwayBill`.
+- [`docs/examples/leajlak-adapter.md`](../examples/leajlak-adapter.md) — long-lived bearer token, non-standard `CANCEL` HTTP verb, provider-side `shop_id` mapped from the branch.
+- [`docs/examples/qmile-adapter.md`](../examples/qmile-adapter.md) — driver selection via `listDrivers` + `preferredDriverId`, fire-and-forget dispatch (no webhook), provider-returned price & ETA at create time.
+
+### Extension points (`extends`)
+
+The capability flags cover behaviors common to multiple providers. Anything genuinely provider-specific — QMile's `packageSize` enum, a carrier's `customsDeclaration` field, a hyperlocal provider's `tipAmount` — lives in the adapter's `extends` map. Each well-known key adds a typed extension to a specific framework seam; the schema's inferred output is then visible both inside the adapter and at the SDK call site.
+
+```ts
+createDeliveryAdapter({
+  id: "qmile",
+  options: qmileOptions,
+  capabilities: { /* … */ },
+
+  extends: {
+    "checkout:input": v.object({
+      parcel: v.optional(v.object({
+        size: v.optional(v.picklist(["small", "medium", "large", "extra_large"])),
+        weight: v.optional(v.object({ value: v.number(), unit: v.picklist(["g", "kg"]) })),
+        fragile: v.optional(v.boolean()),
+      })),
+    }),
+  },
+
+  createDelivery: async ({ fetch, ctx }) => {
+    // ctx.checkoutInput is typed as v.InferOutput<extends["checkout:input"]>
+    const size = ctx.checkoutInput?.parcel?.size ?? "medium"
+    // …
+  },
+})
+```
+
+**Active extension points (v1):**
+
+| Key | Where it surfaces | Read in adapter as |
+|---|---|---|
+| `"checkout:input"` | `commerce.orders.checkout({ delivery: { [adapterId]: ... } })` | `ctx.checkoutInput` |
+
+**Reserved keys (planned, not yet active — listed so the namespace doesn't collide):**
+
+| Key | Where it would surface |
+|---|---|
+| `"method:metadata"` | Typed shape of `deliveryMethod.metadata` per adapter |
+| `"cancel:input"` | Extra knobs at `commerce.delivery.cancel(...)` |
+| `"track:input"` | Query knobs at `commerce.delivery.track(...)` |
+| `"webhook:context"` | Adapter-typed context surfaced on `delivery:*` events to plugins |
+
+At checkout, the SDK exposes one optional key per registered adapter id. The value behind each key is exactly that adapter's `extends["checkout:input"]` schema's inferred output:
+
+```ts
+// With qmile() registered in deliveries: []
+await commerce.orders.checkout({
+  items: cart.items,
+  delivery: {
+    methodId: "qmile-std",
+    qmile: { parcel: { size: "large", fragile: true } },
+    // leajlak: never — leajlak declares no extends["checkout:input"]
+  },
+  payment: { adapterId: "moyasar", providerInput: { token } },
+})
+```
+
+Type inference sketch:
+
+```ts
+type DeliveryCheckoutInput<TAdapters extends readonly DeliveryAdapter[]> =
+  & { methodId: string }
+  & {
+      [A in TAdapters[number] as A['id']]?:
+        A extends { extends: { "checkout:input": infer S extends StandardSchemaV1 } }
+          ? StandardSchemaV1.InferOutput<S>
+          : never
+    }
+```
+
+**Resolution and validation:**
+
+- Framework resolves `methodId` → method's adapter id at checkout time.
+- The matching adapter's `extends["checkout:input"]` schema validates only the corresponding key (`qmile` for a qmile method, etc.).
+- Other adapter keys present at the call site are dropped silently in lax mode (default), or rejected with `CommerceValidationError` when `delivery.strictCheckoutInput: true` is set in `createCommerce`.
+- Adapters that don't declare `extends["checkout:input"]` get `ctx.checkoutInput: undefined`.
+
+**Capability-gated inputs vs extension inputs.** First-class capability-gated inputs (`preferredDriverId`, `vehicleHint`, `scheduledPickupAt`, `cashOnDelivery`, `stops`) stay on `CreateDeliveryContext` — they are common enough to deserve typed fields gated by capabilities. `extends["checkout:input"]` is for everything else: adapter-specific axes that aren't worth a generic capability flag (yet).
+
+### Idempotency
+
+`Idempotency-Key` is an [IETF draft standard](https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/) and the de-facto convention across Stripe, Square, PayPal, Shopify, AWS, GitHub, Razorpay, and others. The framework forwards `ctx.request.idempotencyKey` on every outgoing POST/PUT/PATCH via `createDeliveryAdapter`'s default `fetch` shell — adapters do not write the header by hand.
+
+```ts
+// Built-in behavior of createDeliveryAdapter.fetch:
+// every request gets these headers unless the adapter overrides:
+//   Idempotency-Key: <ctx.request.idempotencyKey>
+```
+
+Per-adapter overrides for providers that rename the header:
+
+```ts
+createDeliveryAdapter({
+  id: "exotic-provider",
+  idempotency: {
+    header: "X-Provider-Request-Id",   // override the default 'Idempotency-Key'
+    methods: ["POST", "PUT"],          // optional; default is ["POST", "PUT", "PATCH"]
+    // set to `false` to disable forwarding entirely for providers that 5xx on unknown headers:
+    // enabled: false,
+  },
+  // …
+})
+```
+
+Receivers that don't recognize the header treat it as opaque metadata; receivers that do treat repeat deliveries of the same key as one operation. The cost of being wrong is zero on indifferent providers and catastrophic-failure-prevention on aware ones.
+
 ## What the adapter does (and does not)
 
 **Does:**
@@ -223,24 +683,27 @@ When the `delivery` slot is active, core materializes the `deliveryMethod` table
 ```ts
 deliveryMethod = {
   id: string
-  adapter: string                // references the delivery adapter registry (literal-typed)
-  pricing: jsonb                 // tagged strategy config: { strategy: '<id>', ...settings }
+  adapter: string                       // references the delivery adapter registry (literal-typed)
+  providerAccountRef: string | null     // provider-side identifier for this method (shopId, branch code, merchant number, etc.)
+  pricing: jsonb                        // tagged strategy config: { strategy: '<id>', ...settings }
   name: string
   enabled: boolean
   minOrderAmount: Money | null
   maxDistanceMeters: number | null
   autoDispatch: 'inherit' | 'auto' | 'manual'   // override the merchant/app default; 'inherit' is the default
 
-  merchant: merchant().optional()  // hierarchical tenancy
-  branch: branch().optional()      // per-branch pricing/methods
+  merchant: merchant().optional()       // hierarchical tenancy
+  branch: branch().optional()           // per-branch pricing/methods
 
-  metadata: jsonb
+  metadata: jsonb                       // adapter-specific extras (packageSize for QMile, pickup contact for Parcel, etc.)
   createdAt: Date
   updatedAt: Date
 }
 ```
 
 The `pricing` column stores a tagged shape — `{ strategy: 'distance-based', ...typedSettings }` — produced by strategy factories. The factory is the input format for create/update; the persisted JSON carries the strategy tag so calculation can look up the right strategy later.
+
+**`providerAccountRef` vs `metadata`.** `providerAccountRef` is the canonical place for "the identifier the provider uses to recognize this method" — Leajlak's `shopId`, a carrier's merchant account number, a region code. Adapters read it as `ctx.method.providerAccountRef`. `metadata` remains the catch-all for adapter-specific extras that aren't an identifier (QMile's `packageSize` policy, Parcel's pickup contact name). Having one canonical field prevents every adapter from coining its own metadata key for the same concept.
 
 Each merchant configures their own delivery methods by picking an adapter and constructing pricing inline:
 
@@ -288,10 +751,19 @@ The three fields are present (potentially null) when the `delivery` slot is acti
 The delivery lifecycle is independent of the order lifecycle. Core defines these delivery states:
 
 ```
-pending → dispatched → in_transit → delivered
-                    → cancelled
-                    → failed
+pending ─► dispatched ─► accepted ─► picked_up ─► in_transit ─► arrived ─► delivered
+              │             │           │                          │           │
+              │             │           └───────────┐              │           └─► returned*
+              │             │                       ▼              ▼
+              ▼             ▼                   cancelled      cancelled
+          cancelled     cancelled
+          failed        failed                      ▼
+                                                 failed
+
+(* only when capabilities.returnFlow is true)
 ```
+
+`accepted`, `picked_up`, `arrived`, and `returned` are optional — providers that don't expose them simply skip ahead (e.g., `dispatched → in_transit → delivered` is a valid trace). Forward-only jumps are accepted by the state machine; backward transitions are not.
 
 Each state transition is recorded in an append-only `deliveryTransition` log. State changes come from:
 - Core operations (`commerce.delivery.cancel(...)`)
@@ -353,18 +825,7 @@ This matches Jaicome's per-branch pricing model (`location_provider_pricing`). A
 
 ## Webhook event shape
 
-Adapters that support webhooks return a normalized `DeliveryEvent`:
-
-```ts
-type DeliveryEvent =
-  | { kind: 'dispatched'; providerReference: string; driverInfo?: DriverInfo }
-  | { kind: 'in_transit'; providerReference: string; location?: Coordinates }
-  | { kind: 'delivered'; providerReference: string; deliveredAt: Date; proof?: ProofOfDelivery }
-  | { kind: 'cancelled'; providerReference: string; reason?: string }
-  | { kind: 'failed'; providerReference: string; reason: string }
-```
-
-Core dispatches the event to the delivery state machine and to any plugin hooks subscribing to `delivery:*` events.
+The canonical `DeliveryEvent` discriminated union is defined alongside the webhook contract — see [Webhook contract](#webhook-contract) above. Core dispatches each event to the delivery state machine and to any plugin hooks subscribing to `delivery:*` events.
 
 ## Capability gating
 
@@ -383,9 +844,9 @@ These are the reference adapters expected to ship under `@commerce-kit/*`:
 | Adapter | Provider | Capabilities |
 |---|---|---|
 | `localDelivery()` | in-house drivers | tracking via plugin layer, manual cancellation, no webhooks |
-| `leajlakDelivery({ apiKey })` | Leajlak | real-time tracking, cancellation, webhooks |
-| `parcelDelivery({ apiKey })` | Parcel | tracking, webhooks |
-| `qmileDelivery({ apiKey })` | QMile | tracking, scheduling, webhooks |
+| `leajlak({ apiKey, baseUrl, webhookSecret })` | [Leajlak](https://docs.leajlak.com/) | real-time tracking, cancellation, webhooks (see [leajlak-adapter.md](../examples/leajlak-adapter.md)) |
+| `parcel({ clientID, clientSecret, region, webhookSecret })` | [Parcel](https://api-docs.tryparcel.com/) | cancellation, scheduling, webhooks (see [parcel-adapter.md](../examples/parcel-adapter.md)) |
+| `qmile({ apiKey, baseUrl })` | QMile | driver selection, estimatedTime (see [qmile-adapter.md](../examples/qmile-adapter.md)) |
 
 Each ships as its own package with its own provider integration. Pricing math is shared via [55-delivery-pricing.md](./55-delivery-pricing.md) — adapters do not implement pricing.
 
