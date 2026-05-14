@@ -38,7 +38,7 @@ export const commerce = createCommerce({
     digitalFulfillment(),
   ],
 
-  delivery: [
+  deliveries: [
     localDelivery({ id: 'riyadh' }),
     localDelivery({ id: 'jeddah' }),
   ],
@@ -122,12 +122,12 @@ Not every provider supports every payment flow; capabilities are explicit.
 ```ts
 interface PaymentCapabilities {
   flow: 'synchronous' | 'redirect' | 'inline'   // see "Payment flow" below
-  supportsCapture: boolean         // can capture an authorized payment later
-  supportsVoid: boolean            // can void an authorization without a refund
-  supportsRefund: boolean          // can refund a captured/paid payment
+  supportsCapture: boolean                      // can capture an authorized payment later
+  supportsVoid: boolean                         // can void an authorization without a refund
+  supportsRefund: boolean                       // can refund a captured/paid payment
   supportsPartialRefund: boolean
-  supportsOffSession: boolean      // can charge a saved customer without a session
-  voidableStates?: PaymentStatus[] // states where cancel() may be called; default ['authorized']
+  supportsOffSession: boolean                   // can charge a saved customer without a session
+  voidableStates?: Array<'AUTHORIZED' | 'CAPTURED'>   // transaction types eligible for cancel(); default ['AUTHORIZED']
 }
 ```
 
@@ -141,20 +141,43 @@ Adapters declare how `authorize()` completes:
 | `'redirect'` | Customer must follow `paymentUrl` to complete payment at the provider's hosted page. Confirmation arrives via webhook. | Moyasar invoice, PayPal, hosted-page providers |
 | `'inline'` | Customer completes payment in-page via the provider's JS SDK using `inlineSecret`. Confirmation arrives via webhook. | Stripe Elements, Square Card |
 
+Adapter methods return a discriminated **outcome** rather than a status string. Core inspects the outcome and decides whether to append a `paymentTransaction` row, transition `order.status`, or return the in-flight handle to the caller without persisting anything.
+
 ```ts
-type AuthorizeResult = {
-  providerReference: string
-  status: PaymentStatus            // 'initiated' | 'authorized' | 'captured' | 'requires_action' | ...
-  paymentUrl?: string              // present when capabilities.flow === 'redirect'
-  inlineSecret?: string            // present when capabilities.flow === 'inline'
-}
+type AuthorizeResult =
+  | { outcome: 'authorized';      providerReference: string; amount: number }
+  | { outcome: 'captured';        providerReference: string; amount: number }
+  | { outcome: 'requires_action'; providerReference: string; paymentUrl?: string; inlineSecret?: string }
+  | { outcome: 'failed';          providerReference?: string; reason: string }
+
+type CaptureResult =
+  | { outcome: 'captured'; providerReference: string; amount: number }
+  | { outcome: 'failed';   reason: string }
+
+type RefundResult =
+  | { outcome: 'refunded'; providerReference: string; amount: number }
+  | { outcome: 'failed';   reason: string }
+
+type CancelResult =
+  | { outcome: 'voided'; providerReference: string }
+  | { outcome: 'failed'; reason: string }
 ```
 
+How outcomes are persisted:
+
+| Outcome | Core action |
+|---|---|
+| `authorized` | Append `paymentTransaction { type: 'AUTHORIZE', amount, providerReference }`. |
+| `captured` | Append `paymentTransaction { type: 'CAPTURE', amount, providerReference }`. |
+| `refunded` | Append `paymentTransaction { type: 'REFUND', amount, providerReference }`. |
+| `voided` | Append `paymentTransaction { type: 'VOID', amount: 0, providerReference }`. |
+| `requires_action` | **Nothing persisted.** `paymentUrl` / `inlineSecret` are returned synchronously to the caller and may be cached by the application in transient storage (e.g. Redis). The order stays in `placed`. |
+| `failed` | **No transaction row.** `order.status` transitions to `failed` (per the order state machine in [20-data-model.md](./20-data-model.md)). |
+
 For `flow: 'synchronous'`:
-- `authorize()` returns immediately with `status: 'initiated'` (or `'authorized'` if the adapter has implicit authorization, like an offline gateway with a manual approval workflow).
-- The payment ledger row is inserted with the returned status.
+- `authorize()` returns `outcome: 'authorized'` (implicit hold by the offline gateway) or `outcome: 'captured'` (e.g. cash collected before the call).
 - The order is in `placed` state, awaiting manual confirmation.
-- `commerce.orders.setPaid({ id })` flips the payment to `paid` when payment is collected (cashier closes the bill, driver confirms cash received, etc.).
+- `commerce.orders.setPaid({ id })` is the path that collects payment for synchronous flows; it calls `adapter.capture(...)` under the hood and the resulting `captured` outcome appends a `CAPTURE` row.
 - `setPaid` validates that the adapter declares `flow: 'synchronous'`. Calling it on a `redirect` or `inline` adapter throws — those flows must be confirmed via webhook.
 
 For `flow: 'redirect'` and `'inline'`:
@@ -163,21 +186,79 @@ For `flow: 'redirect'` and `'inline'`:
 
 Capabilities drive `orders.refund` orchestration:
 
-- When `orders.refund` runs (mode `'auto'`), it iterates over eligible payments for the order.
-- For each payment in a state listed in `voidableStates` (default `['authorized']`), the operation calls `adapter.cancel(providerReference)` first.
-- On void failure, or for payments not in a voidable state, the operation calls `adapter.refund(providerReference, amount, reason)`.
-- A payment adapter that auto-captures or does not distinguish void from refund declares `supportsVoid: false`; `orders.refund` then always refunds.
+- When `orders.refund` runs (mode `'auto'`), it inspects `latest(paymentTransaction)` for the order.
+- If the latest transaction's `type` is in `voidableStates` (default `['AUTHORIZED']`), the operation calls `adapter.cancel(providerReference)` first.
+- On `failed` outcome from `cancel()`, or when the latest type is not voidable, the operation calls `adapter.refund(providerReference, amount, reason)`.
+- An adapter that auto-captures or does not distinguish void from refund declares `supportsVoid: false`; `orders.refund` then always refunds.
 
-Each successful void or refund appends a new row to the payment ledger; the original payment row is never mutated.
+Each successful capture, refund, or void appends a new `paymentTransaction` row. Existing rows are never mutated. There is no "primary payment row" to keep up to date.
 
-Capabilities drive `orders.refund` orchestration:
+### Payment status is derived, not stored
 
-- When `orders.refund` runs (mode `'auto'`), it iterates over eligible payments for the order.
-- For each payment in a state listed in `voidableStates` (default `['authorized']`), the operation calls `adapter.cancel(providerReference)` first.
-- On void failure, or for payments not in a voidable state, the operation calls `adapter.refund(providerReference, amount, reason)`.
-- A payment adapter that auto-captures or does not distinguish void from refund declares `supportsVoid: false`; `orders.refund` then always refunds.
+Commerce Kit does not persist a `paymentStatus` column anywhere. "Current payment state" is a query over the `paymentTransaction` ledger plus `order.status`:
 
-Each successful void or refund appends a new row to the payment ledger; the original payment row is never mutated.
+```text
+latest = latest(paymentTransaction WHERE orderId = ?) by seq
+
+if latest exists:
+  AUTHORIZE  → AUTHORIZED
+  CAPTURE    → CAPTURED            (or PARTIALLY_REFUNDED / REFUNDED once REFUND rows accumulate)
+  REFUND     → PARTIALLY_REFUNDED  if Σrefund < Σcapture, else REFUNDED
+  VOID       → VOIDED
+
+else if order.paymentAdapterId is set:
+  order.status = placed   → INITIATED or REQUIRES_ACTION (customer-action in flight)
+  order.status = failed   → FAILED (declined / abandoned / expired)
+  order.status = cancelled→ VOIDED (pre-authorization cancellation)
+
+else:
+  no payment context yet
+```
+
+The keywords `AUTHORIZED`, `CAPTURED`, `PARTIALLY_REFUNDED`, `REFUNDED`, `VOIDED`, `FAILED`, `INITIATED`, `REQUIRES_ACTION` are the **derived view** vocabulary returned by `commerce.orders.paymentState(orderId)` and surfaced in audit logs. They are not stored as strings on any row.
+
+Adapters never declare a status. They return an outcome (`'authorized' | 'captured' | 'refunded' | 'voided' | 'requires_action' | 'failed'`), and core decides what to persist. This keeps the adapter contract small and the data model immutable in the strict sense — every persisted row is a money-moved event.
+
+#### Transaction type vs. derived status
+
+The `paymentTransaction` ledger carries only `type`:
+
+```ts
+type PaymentTransactionType = 'AUTHORIZE' | 'CAPTURE' | 'REFUND' | 'VOID'
+```
+
+A row exists because the operation settled. There is no `status` field — the row's existence is the success signal. See [20-data-model.md](./20-data-model.md).
+
+The derived status union (`AUTHORIZED | CAPTURED | …`) lives only in the SDK response shape and in log events; it is never serialized to a column.
+
+#### Transition rules
+
+Because the ledger is append-only and the derived view is recomputed from it, "transitions" exist only as the allowed progression of transaction types per order:
+
+```text
+∅ ──► AUTHORIZE ──► CAPTURE ──► REFUND (one or more, ≤ Σcaptures)
+  ├──► CAPTURE                  (auto-capture / 3-D Secure complete)
+  └──► VOID                     (cancel before capture)
+```
+
+Each `paymentTransaction` insert is validated against `latest(paymentTransaction)`:
+
+- `AUTHORIZE` requires no prior row.
+- `CAPTURE` requires either no prior row (auto-capture) or a prior `AUTHORIZE`.
+- `REFUND` requires `Σcapture > Σrefund` after this insert.
+- `VOID` requires the latest row to be `AUTHORIZE`.
+
+A webhook event that would violate this graph (e.g. `REFUND` after `VOID`) is rejected and the adapter raises `CommerceProviderError`. See [15-errors.md](./15-errors.md).
+
+#### Capability gates
+
+- `capabilities.voidableStates` is typed `Array<'AUTHORIZED' | 'CAPTURED'>` and defaults to `['AUTHORIZED']`. It governs which latest-transaction types make `cancel()` an eligible refund path. An adapter that can void a captured payment within a settlement window declares `['AUTHORIZED', 'CAPTURED']`.
+- `orders.refund` reads `latest(paymentTransaction)` to decide void-vs-refund.
+- `orders.setPaid` is valid only when `capabilities.flow === 'synchronous'` AND the latest transaction is missing or `AUTHORIZE`. It calls `adapter.capture(...)` and persists the resulting `CAPTURE` row.
+
+#### Mapping provider outcomes
+
+Every adapter ships a small `mapOutcome(providerPayload) → AuthorizeResult['outcome']` (and equivalent for capture/refund/cancel). Unknown provider statuses **must throw**, not default to `'failed'` — silently failing downstream automation is worse than a loud error. See [`docs/examples/moyasar-adapter.md`](../examples/moyasar-adapter.md) for a worked mapping.
 
 ### Multiple payment adapters
 
@@ -202,6 +283,43 @@ await commerce.orders.checkout({
 ```
 
 Webhook URLs follow the same convention: `/webhooks/payment/moyasar`, `/webhooks/payment/tabby`.
+
+### Adapter-id uniqueness
+
+Adapter `id` literals must be unique within a slot. The same factory used twice (e.g. two `localDelivery` instances for different regions) must supply distinct `id` overrides. Duplicates are rejected at the type level — TypeScript narrows the slot tuple and reports the collision at the `createCommerce()` call site, not at runtime:
+
+```ts
+createCommerce({
+  deliveries: [
+    localDelivery({ id: 'riyadh' }),
+    localDelivery({ id: 'riyadh' }),   // ❌ Type error: duplicate adapter id 'riyadh' in slot 'deliveries'
+  ],
+})
+```
+
+The same uniqueness rule applies to `payments`, `fulfillments`, `payouts`, and `storage`. The `scheduler` slot is single-valued and does not need a tuple-uniqueness check.
+
+### Capability gating on the SDK type
+
+Adapter capabilities are declared as literal types (`capabilities: { supportsVoid: true } as const`), and the SDK surface is narrowed against the **union** of capabilities across all registered adapters in the slot. A method exists on the typed SDK only if at least one configured adapter declares the matching capability. If no adapter does, the method is absent — calling it is a compile error, not a runtime `CommerceCapabilityError`.
+
+```ts
+const m = moyasar({ secretKey: env.MOYASAR_SECRET })   // supportsVoid: false  as const
+const h = hyperpay({ apiKey: env.HYPERPAY_KEY })       // supportsVoid: true   as const
+
+// Slot with only moyasar
+createCommerce({ payments: [m] })
+await commerce.payments.void({ id })            // ❌ Property 'void' does not exist
+
+// Slot with both — `void` exists, but adapterId narrows further
+createCommerce({ payments: [m, h] })
+await commerce.payments.void({ id, adapterId: 'hyperpay' })   // ✅
+await commerce.payments.void({ id, adapterId: 'moyasar' })    // ❌ moyasar.capabilities.supportsVoid is false
+```
+
+The same union-and-narrow pattern applies to every slot: delivery (`cancellation`, `realtimeTracking`, `proofOfDelivery`), payout (partial release, reversal), fulfillment (label printing, return labels), and so on. Each adapter's capabilities are visible on `commerce.metadata.adapters()` for runtime introspection.
+
+> **Implementation note.** The current runtime allows a single active adapter per slot to be selected at call time; the multi-adapter typed surface above is the v1 target shape. Code authored against the typed surface keeps working as multi-adapter dispatch lands — the typed contract is intentionally the larger of the two.
 
 The payment persistence model distinguishes between:
 

@@ -34,7 +34,7 @@ Any attribute set defines a variant. Each variant owns its price and currency. V
 
 ### order
 
-Core fields: `id`, `customerId`, `status`, `subtotal`, `discountTotal`, `taxTotal`, `fulfillmentTotal`, `total`, `currency`, `paymentAdapterId`, `paymentReference`, `metadata`, `pluginData`, `createdAt`, `updatedAt`
+Core fields: `id`, `customerId`, `status`, `subtotal`, `discountTotal`, `taxTotal`, `fulfillmentTotal`, `total`, `currency`, `paymentAdapterId`, `metadata`, `pluginData`, `createdAt`, `updatedAt`
 
 Conditionally materialized fulfillment fields: `fulfillmentMethodId`, `fulfillmentType`, `fulfillmentTypeData`, `fulfillmentAdapterId`
 
@@ -46,9 +46,16 @@ Marketplace fields, materialized when `tenancy.checkout: 'split'`: `groupId` (nu
 
 Orders are permanent financial records and are never deleted. `customerId` is nullable so guest, offline, and COD orders remain first-class. Conditional fulfillment fields exist only when fulfillment is active.
 
-`order.paymentReference` is the order-level pointer to the primary provider transaction or authorization/capture flow for the order. Webhook idempotency keys are recorded separately and are not overloaded onto `order.paymentReference`.
+`order.paymentAdapterId` is the only payment field on the order — it identifies which configured adapter is handling this order. There is no `order.paymentReference` and no `order.paymentStatus`. Provider transaction references live on `paymentTransaction` rows (see below); webhooks resolve back to an order via adapter-supplied metadata (`order_id`), not via a denormalized field on the order.
 
-Order-level payment state is derived from the append-only `payment` ledger and high-level order workflow methods such as `orders.checkout(...)`, `orders.setPaid(...)`, `orders.cancel(...)`, and `orders.refund(...)`. Core avoids requiring application developers to coordinate low-level payment statuses directly in the common checkout path.
+Payment lifecycle is split deliberately:
+
+- Money-moved events live in `paymentTransaction` (immutable, append-only).
+- Non-money lifecycle — including failed and expired payment attempts — lives on `order.status`. A declined or expired attempt transitions the order to `failed` and produces no transaction row.
+
+The "current payment state" of an order is derived by reading `latest(paymentTransaction WHERE orderId = ?)` if any rows exist, otherwise from `order.status`. High-level order workflow methods (`orders.checkout(...)`, `orders.setPaid(...)`, `orders.cancel(...)`, `orders.refund(...)`) own this derivation so application developers do not coordinate low-level payment statuses directly.
+
+In-flight customer-action handles (`paymentUrl` for redirect flows, `inlineSecret` for inline flows) are **not persisted**. They are returned synchronously from `authorize()` to the caller and may be cached transiently (e.g. Redis) by the application if it needs to resume a session. The order itself stays free of expiring secrets.
 
 ### orderItem
 
@@ -56,15 +63,23 @@ Fields: `id`, `orderId`, `variantId`, `quantity`, `unitPrice`, `total`, `currenc
 
 Order items become immutable after order confirmation and snapshot product name, attributes, and pricing at order time.
 
-### payment
+### paymentTransaction
 
-Fields: `id`, `orderId`, `adapterId`, `providerReference`, `providerEventId`, `type`, `status`, `amount`, `currency`, `errorCode`, `rawResponse`, `createdAt`
+Fields: `id`, `orderId`, `adapterId`, `type`, `amount`, `currency`, `providerReference`, `providerEventId`, `seq`, `rawResponse`, `createdAt`
 
-Payments form an immutable append-only ledger with one row per payment event.
+```ts
+type PaymentTransactionType = 'AUTHORIZE' | 'CAPTURE' | 'REFUND' | 'VOID'
+```
 
-`payment.providerReference` is the provider-owned transaction or operation reference used for payment actions such as capture, refund, or cancel.
+`paymentTransaction` is an immutable, append-only, money-moved ledger. A row exists because the operation settled at the provider. Failed, declined, expired, and pending-customer-action attempts produce **no row** — those outcomes are reflected on `order.status`.
 
-`payment.providerEventId` is the provider-owned idempotency key for inbound webhook/event delivery when the provider supplies one. It is distinct from the transaction reference and may repeat the same transaction across multiple provider events.
+There is no `status` column. The row's `type` and the existence of the row together describe the event; success is implied.
+
+`paymentTransaction.providerReference` is the provider-owned transaction or operation reference used for subsequent actions (capture, refund, cancel) against this row.
+
+`paymentTransaction.providerEventId` is the provider-owned webhook idempotency key when supplied. It is distinct from `providerReference` and may repeat the same transaction across multiple provider events.
+
+`paymentTransaction.seq` is a per-order monotonically increasing integer assigned at insert time (`SELECT max(seq)+1 WHERE orderId = ?` inside the same transaction as the insert). It is the authoritative ordering when reading the latest transaction; `createdAt` is informational only.
 
 ### orderTransition
 
@@ -104,7 +119,8 @@ Parent record linking multiple per-merchant `order` rows produced by a single cr
 - Monetary persistence uses integers only.
 - Each order uses exactly one currency; mixed-currency baskets must be split before becoming a persisted order, not modeled inside a single order record.
 - Orders are never deleted.
-- Payment history is append-only.
+- `paymentTransaction` is append-only and immutable; rows record money-moved events only. Failed and pending attempts produce no row.
+- Payment state is never stored as a single field. It is derived from `latest(paymentTransaction)` for the order, with `order.status` carrying the non-money signal when no transactions exist.
 - Order transition history is append-only.
 - Order item snapshots are immutable after confirmation.
 - Invalid order transitions must always be rejected at runtime. Compile-time narrowing is expected only where transition inputs are statically represented in typed code.
@@ -135,12 +151,12 @@ Base transitions are intentionally non-linear. The normal successful path is:
 
 Additional core transitions:
 
-- `draft → failed`
+- `draft | placed → failed`
 - `draft | placed | confirmed | processing → cancelled`
 - `placed | confirmed | processing | fulfilled | completed → partially_refunded`
 - `placed | confirmed | processing | fulfilled | completed | partially_refunded → refunded`
 
-`draft` is a reserved order ID or checkout attempt that is not shown in normal order history. `placed` is a valid submitted order and may still be unpaid for COD or offline payment flows. `confirmed` means the merchant or system accepted the order for processing.
+`draft` is a reserved order ID or checkout attempt that is not shown in normal order history. `placed` is a valid submitted order and may still be unpaid for COD, offline, or pending-customer-action (3-D Secure, hosted-page) payment flows. `confirmed` means the merchant or system accepted the order for processing. `failed` is the terminal state for both upstream-rejected orders and payment attempts that did not settle (declined card, abandoned 3-D Secure, expired hosted page).
 
 Optional fulfillment adapters and plugins may extend this state machine with additional states and transitions. Core persists transition values as strings so those extensions can be recorded without changing the base entity contract.
 
