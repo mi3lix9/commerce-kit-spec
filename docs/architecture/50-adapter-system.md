@@ -117,6 +117,60 @@ interface PaymentAdapter {
 
 `verifyWebhook` is optional because synchronous adapters (e.g., COD) don't have an inbound webhook stream.
 
+### Authoring with `createPaymentAdapter`
+
+The raw `PaymentAdapter` interface is the contract; `createPaymentAdapter` is the recommended way to author one. The helper owns the parts every adapter would otherwise repeat (literal-id inference, options validation, wire-format money conversion, outcome shape construction, webhook flow shell), leaving the developer to write provider-specific logic: a configured fetch, a status mapper, and per-method request bodies.
+
+```ts
+import { createPaymentAdapter } from "commerce-kit"
+import * as v from "valibot"
+
+export const myProvider = createPaymentAdapter({
+  id: "my-provider",                                          // default literal id; overridable at call site
+  options: v.object({ secretKey: v.string() }),               // Standard Schema; validated at createCommerce()
+
+  capabilities: { flow: "redirect", supportsCapture: true, /* … */ },
+
+  moneyConversion: (money) => money.minorUnits(),             // built-in or custom { toWire, fromWire }
+
+  fetch: ({ options }) => (input, init) =>                    // returns a standard Response-returning fetch
+    globalThis.fetch(`https://api.example.com${input}`, {
+      ...init,
+      headers: { ...init?.headers, Authorization: `Bearer ${options.secretKey}` },
+    }),
+
+  status: (payload) => /* "authorized" | "captured" | "refunded" | "voided" | "requires_action" | "failed" */,
+
+  authorize: async ({ fetch, ctx }) => { /* … */ return { payload, paymentUrl?, reason? } },
+  capture:   async ({ fetch, providerReference, amount }) => { /* … */ return { payload } },
+  refund:    async ({ fetch, providerReference, amount, reason }) => { /* … */ return { payload } },
+  cancel:    async ({ fetch, providerReference }) => { /* … */ return { payload } },
+
+  webhook: {
+    verify: ({ rawBody, headers, options }) => /* boolean */,
+    extract: (raw) => /* parsed payload, fed back into status() */,
+    deliveryKey: (payload) => /* string for webhook idempotency, optional */,
+  },
+})
+```
+
+Normative rules for the helper:
+
+- **`id` lives on the factory**, not in `options`. The options schema describes provider configuration only; the slot identity is meta. Override at the call site for multi-instance setups: `myProvider({ id: "my-provider-eu", ... })`.
+- **`fetch` is standard Web fetch.** The factory returns a `(input, init) => Promise<Response>`. No invented `.post`/`.get` sugar, no wrapping helper. The developer composes it however they want — auth, base URL, request signing, retries — using a closure.
+- **`moneyConversion` runs once at the framework boundary.** By the time `ctx.amount` reaches a method it is already in the provider's wire format; amounts returned in the payload are converted back to integer minor units before core constructs the result. Methods never call conversion helpers.
+- **`status(payload)` is a function**, not a lookup table. Free to disambiguate on any field — multi-field branching (Tabby's `CLOSED` × `captures[]`/`refunds[]`), nested field inspection (Moyasar's `transaction_url` presence), throwing on unknowns.
+- **Methods return `{ payload, paymentUrl?, inlineSecret?, reason? }`.** The framework runs `status(payload)` to pick the outcome and uses the optional fields when relevant (`paymentUrl` only when outcome is `requires_action`, etc.). A method may also short-circuit with an explicit outcome (`return { outcome: "failed", reason: "..." }`) for edge cases the status mapper can't see (e.g. session-level rejection rather than payment-level).
+- **`webhook.verify` returns a boolean.** Tabby-style configurable-header schemes return a constant-time string compare; HMAC-signed providers return `timingSafeEqual` on digests. The framework rejects with `CommerceWebhookError` on `false`.
+- **Method throws → `outcome: 'failed'`.** Any `CommerceProviderError` thrown inside a method is caught by the framework and converted to a failed outcome with the error's `message` as the `reason`. Other throws bubble.
+
+The raw `PaymentAdapter` contract remains legal for adapters that need to escape every helper convention (custom retry topology, non-fetch transport, exotic flows). `createPaymentAdapter` produces a `PaymentAdapter` and is fully interoperable.
+
+Worked examples:
+
+- [`docs/examples/moyasar-adapter.md`](../examples/moyasar-adapter.md) — integer minor units, HMAC-signed webhooks, redirect flow.
+- [`docs/examples/tabby-adapter.md`](../examples/tabby-adapter.md) — decimal-string money, configurable-header webhook auth, BNPL pre-scoring with the explicit-outcome escape hatch.
+
 Not every provider supports every payment flow; capabilities are explicit.
 
 ```ts
