@@ -188,6 +188,55 @@ When tenancy is enabled, the resolver is responsible for populating `merchantId`
 - Use a shared handler for HTTP verbs on catch-all API routes
 - Use a dedicated webhook handler for webhook routes
 
+#### Recipe: a minimal storefront
+
+The smallest functional wiring of Commerce Kit into a Next.js App Router project. The handler module is mounted at a single catch-all route; webhooks live at their own route so body parsing can stay raw.
+
+```ts
+// lib/commerce.ts
+import { createCommerce, drizzleAdapter } from "commerce-kit"
+import { moyasar } from "@commerce-kit/moyasar"
+import { db, schema } from "@/db"
+
+export const commerce = createCommerce({
+  database: drizzleAdapter(db, { schema }),
+  payments: [moyasar({ secretKey: process.env.MOYASAR_SECRET! })],
+})
+```
+
+```ts
+// app/api/commerce/[...route]/route.ts
+import { nextHandler } from "@commerce-kit/next"
+import { commerce } from "@/lib/commerce"
+
+const handler = nextHandler(commerce, {
+  resolveContext: async (req) => {
+    const session = await getSession(req)        // app-defined
+    return {
+      actorId: session?.userId ?? null,
+      customerId: session?.customerId ?? null,
+    }
+  },
+})
+
+export const GET = handler
+export const POST = handler
+export const PUT = handler
+export const PATCH = handler
+export const DELETE = handler
+```
+
+```ts
+// app/api/commerce/webhooks/[adapterId]/route.ts
+import { nextWebhookHandler } from "@commerce-kit/next"
+import { commerce } from "@/lib/commerce"
+
+export const POST = nextWebhookHandler(commerce)
+// nextWebhookHandler reads the raw body and dispatches to the matching adapter.
+```
+
+That covers `/api/commerce/products`, `/api/commerce/orders`, `/api/commerce/cart`, and `/api/commerce/webhooks/<adapterId>` from one mount. Client-side, `createCommerceClient` (below) talks to the same prefix.
+
 ## Client SDK
 
 `@commerce-kit/client` is the canonical fetch-based SDK for v1 and owns the `createCommerceClient` runtime factory.
@@ -224,6 +273,37 @@ commerce.orders.refund(...)
 This is a shared contract, not two separately designed APIs. The server runtime may execute methods in-process while `@commerce-kit/client` executes them over HTTP, but both must preserve the same namespace and method vocabulary.
 
 Unsupported methods are omitted rather than exposed as always-present endpoints that later fail. For example, an immutable or workflow-driven namespace may expose `list` and `get` without also exposing `update` or `delete`, and optional namespaces such as `fulfillment` exist only when configured.
+
+### Client setup
+
+`createCommerceClient` is the factory; create one instance at the module level and reuse it for every request. The factory is fully typed against `typeof commerce`, so installed plugins and adapter-gated namespaces flow into autocomplete on the client.
+
+```ts
+// lib/commerce-client.ts
+import { createCommerceClient } from "@commerce-kit/client"
+import type { commerce } from "@/lib/commerce"          // server-side type only
+
+export const client = createCommerceClient<typeof commerce>({
+  baseUrl: "/api/commerce",
+  cart: { storage: "localStorage" },                    // or "server" when cart persistence is enabled
+})
+```
+
+Authentication is the host application's responsibility — Commerce Kit does not own the auth layer (see [10-core-engine.md → Non-goals](./10-core-engine.md#non-goals)). Pass credentials through whatever mechanism the surrounding framework already uses (cookies, headers, edge middleware). The client accepts a `fetch` override for apps that need to attach headers per call:
+
+```ts
+export const client = createCommerceClient<typeof commerce>({
+  baseUrl: "/api/commerce",
+  fetch: (input, init) => fetch(input, { ...init, credentials: "include" }),
+})
+```
+
+Usage from a component is the same as the server SDK, except every call returns `{ data, error }` instead of throwing — see [15-errors.md → Client SDK](./15-errors.md#client-sdk---data-error-result):
+
+```tsx
+const { data, error } = await client.cart.add({ variantId, quantity: 1 })
+if (error) toast.error(error.message)
+```
 
 ### Client method to HTTP mapping
 

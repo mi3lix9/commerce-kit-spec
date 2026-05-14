@@ -242,6 +242,31 @@ fulfillment:createFulfillment
 
 Plugin-contributed operations extend this set when the plugin is installed.
 
+## State-change events
+
+In addition to `operation:phase` hooks, the order state machine emits **state-change events** whenever an order transitions into a terminal or notable state, regardless of whether the transition originated from a typed operation, a payment webhook, or a plugin-driven flow. These events are intentionally trigger-agnostic so that downstream concerns (auto-dispatch, notifications, ledger projections) react to the **state**, not the **operation** that produced it.
+
+```
+orders:confirmed       orders:fulfilled       orders:cancelled
+orders:completed       orders:refunded
+```
+
+Format: `<resource>:<newState>` (no `:before` / `:after` phase — state changes have already happened by the time the event fires; treat them as `after`-style notifications).
+
+Example — auto-dispatch listens to `orders:confirmed`, not `orders:confirm:after`, so it also fires when the order is confirmed via a payment webhook:
+
+```ts
+on: {
+  'orders:confirmed': async ({ order, commerce, runInBackground }) => {
+    if (order.deliveryMethodId) {
+      runInBackground(() => commerce.delivery.create({ orderId: order.id }))
+    }
+  },
+}
+```
+
+A small number of subsystems also expose **resolver hooks** that follow neither format — e.g., `'calculation:resolvePipeline'` in [35-calculation-engine.md](./35-calculation-engine.md). These are documented at their source.
+
 ## `onBackgroundError`
 
 Errors thrown inside `runInBackground` callbacks are forwarded to `onBackgroundError`. If not configured, errors are silently discarded.

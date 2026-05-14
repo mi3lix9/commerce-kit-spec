@@ -250,6 +250,64 @@ If the row requires a tenancy column and the context has no value and the input 
   Bind a context via commerce.withContext({ merchantId }) or pass merchant in input.
 ```
 
+## Admin UI patterns
+
+The same engine serves three audiences when tenancy is on: the platform admin (sees everything), the merchant operator (sees their merchant), and the public storefront (reads scoped data, writes as a customer). Pin a single helper that turns a request into the right scoped SDK, then call that helper at the top of every route handler:
+
+```ts
+// lib/commerce-for-request.ts
+import { commerce } from "./commerce"
+
+export function commerceForRequest(req: Request) {
+  const session = getSession(req)
+
+  if (session.role === "platform-admin") {
+    // Platform admin — no tenancy scope; opt into `acrossAll: true` per-call when
+    // a list needs to cross merchant boundaries.
+    return commerce.withContext({
+      actorId: session.userId,
+      roles: session.roles,
+    })
+  }
+
+  if (session.role === "merchant-operator") {
+    // Scoped to one merchant; optionally one branch.
+    return commerce.withContext({
+      actorId: session.userId,
+      merchantId: session.merchantId,
+      branchId: session.branchId,
+    })
+  }
+
+  // Public storefront — scoped to the merchant whose storefront is being served.
+  return commerce.withContext({
+    customerId: session.customerId,
+    merchantId: resolveStorefrontMerchant(req),
+  })
+}
+```
+
+```ts
+// app/api/orders/route.ts
+export async function GET(req: Request) {
+  const store = commerceForRequest(req)
+  const orders = await store.orders.list()              // automatically merchant-scoped
+  return Response.json(orders)
+}
+
+// app/api/admin/orders/route.ts — platform admin only
+export async function GET(req: Request) {
+  assertPlatformAdmin(req)
+  const all = await commerce.orders.list({ acrossAll: true })   // explicit escape
+  return Response.json(all)
+}
+```
+
+Two rules:
+
+- **Bind once per request, then reuse.** Calling `withContext` inside loops or hooks defeats the point.
+- **`acrossAll: true` is explicit, never implicit.** Any list that crosses merchant boundaries must opt in at the call site. Use it sparingly and always behind an authorization check.
+
 ## Escape hatches
 
 Three escape hatches cover the cases where automatic resolution isn't what you want.

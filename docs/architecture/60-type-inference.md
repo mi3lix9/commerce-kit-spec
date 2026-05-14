@@ -49,6 +49,42 @@ For direct typed usage patterns based on literal config and known property acces
 
 These guarantees are bounded by TypeScript's static analysis model. They apply to inferred config, known namespaces, and typed transition inputs; they do not claim to reject every invalid runtime-computed string or dynamically assembled access path.
 
+## Branded identifiers
+
+Every public identifier is a branded string, not a bare `string`. Money is a branded shape over its currency literal. The brands carry no runtime cost — they exist only at the type level — but they make the most common silent bug in commerce (mixing an order ID with a merchant ID, or adding amounts in different currencies) uncompilable.
+
+```ts
+type OrderId    = string & { readonly __brand: "OrderId" }
+type MerchantId = string & { readonly __brand: "MerchantId" }
+type BranchId   = string & { readonly __brand: "BranchId" }
+type ProductId  = string & { readonly __brand: "ProductId" }
+type VariantId  = string & { readonly __brand: "VariantId" }
+type PaymentId  = string & { readonly __brand: "PaymentId" }
+type DeliveryId = string & { readonly __brand: "DeliveryId" }
+// ...one per resource
+
+type Money<C extends string = string> = {
+  readonly amount: number
+  readonly currency: C
+}
+```
+
+Compile-time consequences:
+
+```ts
+declare const orderId: OrderId
+declare const merchantId: MerchantId
+
+await commerce.orders.get({ id: orderId })      // ✅
+await commerce.orders.get({ id: merchantId })   // ❌ Type 'MerchantId' is not assignable to 'OrderId'
+
+const a = money(1500, "SAR")  // Money<"SAR">
+const b = money(2000, "USD")  // Money<"USD">
+add(a, b)                     // ❌ currency literals differ
+```
+
+Branded IDs are produced by the SDK on read and by typed constructors at trust boundaries. Apps that receive a raw string from an external request must narrow it explicitly — usually through the same Standard Schema that validates the request — before passing it to a typed call site.
+
 ## Plugin-gated and adapter-gated surface area
 
 Type removal is part of the contract, not an implementation detail.

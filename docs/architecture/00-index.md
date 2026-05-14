@@ -15,6 +15,24 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 - Monetary values use integer minor units only.
 - Invalid operations must fail clearly at compile time, runtime, or both.
 
+## Quick start
+
+The minimum viable `createCommerce()` for a single-store project. Every other key is optional and resolves to a documented default:
+
+```ts
+import { createCommerce, drizzleAdapter } from "commerce-kit"
+import { moyasar } from "@commerce-kit/moyasar"
+
+export const commerce = createCommerce({
+  database: drizzleAdapter(db, { schema }),
+  payments: [moyasar({ secretKey: env.MOYASAR_SECRET })],
+})
+```
+
+What this gives you: a single-store engine, no tenancy, no server-side cart, an empty calculation pipeline (`subtotal === total`), no scheduler, no fulfillment, no delivery. Every dormant slot stays dormant; the SDK surface narrows accordingly so methods you cannot use do not appear.
+
+Layer features in only when you need them — see the architecture map below. Each capability is opt-in: declaring `tenancy`, `cart: { persistence: true }`, `deliveries: [...]`, or any plugin lights up that surface and nothing else.
+
 ## Architecture map
 
 - [Core engine](./10-core-engine.md) — scope, non-goals, principles, dormant activation, and core responsibilities
@@ -33,7 +51,7 @@ This directory is the canonical architecture reference for Commerce Kit. It defi
 - [Validation](./47-validation.md) — Standard Schema contract for `operations.input`, fulfillment type `data`, delivery pricing `settings`, and webhook payloads
 - [Adapter system](./50-adapter-system.md) — database and provider adapter contracts, dormant activation, and fulfillment model boundaries
 - [Fulfillment types](./52-fulfillment-types.md) — open type registry with typed data schemas, plugin and inline contributions, validation rules
-- [Delivery adapters](./54-delivery-adapters.md) — `delivery: []` slot for driver-based dispatch adapters, `DeliveryAdapter` contract, `deliveryMethod` entity, lifecycle and webhooks
+- [Delivery adapters](./54-delivery-adapters.md) — `deliveries: []` slot for driver-based dispatch adapters, `DeliveryAdapter` contract, `deliveryMethod` entity, lifecycle and webhooks
 - [Delivery pricing](./55-delivery-pricing.md) — `deliveryPricing: []` slot for fee-calculation strategies, built-in strategies (free, flat, distance, tiered, weight, zone), `DistanceProvider` abstraction
 - [Type inference](./60-type-inference.md) — `createCommerce()`-driven type flow and compile-time guarantees
 - [Packages and monorepo](./70-packages-and-monorepo.md) — tooling stack, package map, build conventions, and release rules

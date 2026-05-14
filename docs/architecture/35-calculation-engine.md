@@ -166,7 +166,7 @@ Core itself registers a small set of steps under the `core:*` namespace. These a
 
 | Step ID | Registered when | Type | What it emits |
 |---|---|---|---|
-| `core:delivery-fee` | `delivery: [...]` is non-empty | `fulfillment` | One `appliesTo: 'order'` adjustment from the order's `deliveryMethod` pricing strategy. Throws on `below_min_amount` / `out_of_range` / `no_zone_match`. See [55-delivery-pricing.md](./55-delivery-pricing.md). |
+| `core:delivery-fee` | `deliveries: [...]` is non-empty | `fulfillment` | One `appliesTo: 'order'` adjustment from the order's `deliveryMethod` pricing strategy. Throws on `below_min_amount` / `out_of_range` / `no_zone_match`. See [55-delivery-pricing.md](./55-delivery-pricing.md). |
 
 The default pipeline auto-injects active `core:*` steps in a fixed order:
 
@@ -293,6 +293,47 @@ Steps may emit adjustments with `metadata.taxInclusive: true` to signal that the
 
 This is the only place where engine math differs based on adjustment metadata. All other adjustment kinds add or subtract from `total` based on their signed `amount`.
 
+## `explain()` — pricing introspection
+
+Every calculation result exposes a side-effect-free `explain()` that traces which steps ran, which adjustments they emitted, and which rules were considered but skipped. `commerce.calculation.explain({ items, merchantId? })` runs the pipeline in a dry-run mode that returns the same trace without persisting the result. Both are intended for debugging — production code paths should not depend on the trace shape.
+
+```ts
+const result = await commerce.orders.calculate({ items })
+const trace = result.explain()
+// {
+//   pipelineSource: { kind: 'merchantOverride', merchantId: 'm_123' },
+//   pipeline: ['pricing-rules:discounts', 'core:delivery-fee', 'pricing-rules:taxes'],
+//   steps: [
+//     {
+//       id: 'pricing-rules:discounts',
+//       durationMs: 0.4,
+//       emitted: [
+//         { kind: 'discount', amount: -500, ruleId: 'r_summer' },
+//       ],
+//       skipped: [
+//         { ruleId: 'r_xmas', reason: 'cart subtotal below minimum' },
+//         { ruleId: 'r_loyalty', reason: 'customer not enrolled' },
+//       ],
+//     },
+//     {
+//       id: 'core:delivery-fee',
+//       durationMs: 0.1,
+//       emitted: [{ kind: 'fulfillment', amount: 1500, ruleId: 'flat-riyadh' }],
+//     },
+//     {
+//       id: 'pricing-rules:taxes',
+//       durationMs: 0.2,
+//       emitted: [{ kind: 'tax', amount: 225, ruleId: 'vat-15' }],
+//     },
+//   ],
+// }
+
+// Hypothetical — does not persist
+const dryRun = await commerce.calculation.explain({ items, merchantId: 'm_123' })
+```
+
+Trace recording is gated behind a development flag so production calculations stay zero-overhead. The trace shape is part of the SDK contract — third-party debug UIs can render against it.
+
 ## What runs without any plugin
 
 If no plugin registers calculation steps and no pipeline is configured:
@@ -305,7 +346,7 @@ This is a valid configuration for a zero-tax, zero-discount store and requires n
 
 ## Cross-links
 
-- Pricing rule entities and default step implementations: [44-pricing-rules-plugin.md](./44-pricing-rules-plugin.md) _(planned)_
+- Pricing rule entities and default step implementations: [44-pricing-rules-plugin.md](./44-pricing-rules-plugin.md)
 - Money rules and rounding invariants: [30-pricing-and-calculations.md](./30-pricing-and-calculations.md)
 - Plugin authoring surface and `calculation.steps` contract: [40-plugin-system.md](./40-plugin-system.md)
 - Hook context shape and `:before`/`:after` semantics: [42-hooks.md](./42-hooks.md)

@@ -27,7 +27,7 @@ import { couponsPlugin } from "@commerce-kit/coupons"
 createCommerce({
   database: drizzleAdapter(db, { schema }),
   payments: [moyasar({ secretKey: env.MOYASAR_SECRET })],
-  fulfillments: [aramex({ apiKey: env.ARAMEX_KEY })],
+  deliveries: [aramex({ apiKey: env.ARAMEX_KEY })],
   plugins: [couponsPlugin()],
 })
 ```

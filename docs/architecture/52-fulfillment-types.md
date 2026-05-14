@@ -182,9 +182,19 @@ A type-listing operation makes the registry visible to admin UIs (e.g., a "creat
 commerce.fulfillment.types.list(): Promise<{
   id: string                            // 'pickup' or 'restaurant:dinein'
   description: string | null
-  dataSchema: JsonSchema                // serializable form of the Zod schema
+  dataSchema: JsonSchema                // Standard Schema → JSON Schema (contract)
 }[]>
 ```
+
+`dataSchema` is always returned as a standard JSON Schema object, converted from the registered Standard Schema (see [47-validation.md](./47-validation.md)) at engine boot. This is part of the SDK contract — admin UIs can render a dynamic form from `dataSchema` without knowing which schema library the type was authored with:
+
+```tsx
+function FulfillmentTypeForm({ type }: { type: FulfillmentTypeInfo }) {
+  return <JsonSchemaForm schema={type.dataSchema} />   // generic renderer
+}
+```
+
+The same JSON-Schema contract applies to other registry-shaped surfaces — `commerce.delivery.strategies.list()` (see [55-delivery-pricing.md → Server SDK](./55-delivery-pricing.md#server-sdk)) and `commerce.metadata.operation()` (see [25-server-sdk.md → `metadata`](./25-server-sdk.md#metadata)).
 
 This is the only runtime read against the registry. Validation at write time is core-internal.
 

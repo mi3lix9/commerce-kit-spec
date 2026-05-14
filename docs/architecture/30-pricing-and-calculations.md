@@ -40,6 +40,24 @@ Normative rules:
 
 Internal calculation helpers may expose immutable money operations, but those helpers are implementation details unless a later RFC promotes them to public API.
 
+### Money helpers
+
+`Money` is exposed as a sealed shape with constructor and arithmetic helpers. Direct field arithmetic is discouraged because it lets currency mismatches compile.
+
+```ts
+import { money, add, sub, mul } from "commerce-kit/money"
+
+const a = money(1500, "SAR")
+const b = money(2000, "SAR")
+const c = money(500, "USD")
+
+add(a, b)   // ✅ Money { amount: 3500, currency: "SAR" }
+add(a, c)   // ❌ compile error: currency literals differ ("SAR" vs "USD")
+mul(a, 2)   // ✅ Money { amount: 3000, currency: "SAR" }
+```
+
+Each helper is generic over the currency literal so cross-currency arithmetic is rejected at compile time, not at runtime. Branded identifiers follow the same principle — see [60-type-inference.md](./60-type-inference.md#branded-identifiers).
+
 ## Rounding
 
 Rounding is configured at `createCommerce()` time:

@@ -205,6 +205,55 @@ if (error?.code === 'coupons:COUPON_EXPIRED') {
 
 ---
 
+## Common recipes
+
+Three patterns cover almost every error flow an integrating app needs.
+
+### Validation errors → form field highlights
+
+`CommerceValidationError.issues` is shaped for direct render against form state. The `path` array maps to the input name; the `message` is already humanised.
+
+```ts
+if (error instanceof CommerceValidationError) {
+  for (const issue of error.issues) {
+    setFieldError(issue.path.join('.'), issue.message)
+  }
+  return
+}
+```
+
+### State errors → user-readable rejection
+
+`CommerceStateError` carries the current state and the attempted transition on `error.context`. Surface it directly:
+
+```ts
+if (error instanceof CommerceStateError && error.code === 'INVALID_TRANSITION') {
+  toast.error(
+    `Order is ${error.context.currentState}; cannot ${error.context.attempted}`
+  )
+  return
+}
+```
+
+If you are using the type-narrowed `commerce.orders` surface (see [25-server-sdk.md → `orders`](./25-server-sdk.md#orders)), the same check is enforced at compile time — `CommerceStateError` at runtime should only fire for transitions whose validity depends on data the type system can't see (e.g. inventory, external authorization).
+
+### Payment errors → retry or fall back
+
+`CommercePaymentError` distinguishes user-recoverable failures (`DECLINED`, `INSUFFICIENT_FUNDS`) from terminal ones (`GATEWAY_ERROR`):
+
+```ts
+if (error instanceof CommercePaymentError) {
+  if (error.code === 'payment:DECLINED' || error.code === 'payment:INSUFFICIENT_FUNDS') {
+    showRetryWithDifferentMethod(error.message)
+  } else {
+    showSupportContact(error.code)
+  }
+  return
+}
+```
+
+---
+
 ## Framework wrappers
 
 `@commerce-kit/react` (and equivalent packages for other frameworks) wrap the base `CommerceResult<T>` to add `isLoading` and reactive state:

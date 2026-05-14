@@ -161,6 +161,72 @@ Switching `tenancy.checkout` from `'single-merchant'` to `'split'` is a config c
 
 Switching from `'split'` back to `'single-merchant'` is rejected at config validation if any `order.groupId` is non-null — the data shape would become inconsistent.
 
+### Walkthrough: single store → marketplace
+
+The smallest sequence to grow a single-store deployment into a marketplace. Every step is additive — the old code keeps working.
+
+**Step 1 — single store, as shipped.**
+
+```ts
+createCommerce({
+  database: drizzleAdapter(db, { schema }),
+  payments: [moyasar({ secretKey: env.MOYASAR_SECRET })],
+})
+```
+
+**Step 2 — turn tenancy on, still single-merchant checkout.** Backfill `merchantId` on existing rows during the same deploy:
+
+```ts
+createCommerce({
+  database: drizzleAdapter(db, { schema }),
+  payments: [moyasar({ secretKey: env.MOYASAR_SECRET })],
+  tenancy: {
+    merchants: true,
+    branches: true,
+    checkout: "single-merchant",        // unchanged behavior; tenancy columns now materialize
+  },
+})
+```
+
+At this point existing carts still produce single-merchant orders. The data shape is marketplace-ready; the checkout strategy is not.
+
+**Step 3 — flip checkout to `'split'`.** Cross-merchant carts now produce an `orderGroup` with one child order per merchant. No historical migration:
+
+```ts
+createCommerce({
+  database: drizzleAdapter(db, { schema }),
+  payments: [moyasar({ secretKey: env.MOYASAR_SECRET })],
+  tenancy: {
+    merchants: true,
+    branches: true,
+    checkout: "split",
+  },
+})
+
+const result = await commerce.orders.checkout({
+  items: [
+    { variantId: "var_m1_v1", quantity: 1 },   // merchant m1
+    { variantId: "var_m2_v1", quantity: 1 },   // merchant m2
+  ],
+})
+// result.orderGroup.id === 'og_…'
+// result.orders.length === 2   (one per merchant)
+```
+
+**Step 4 — commission and payouts.** Commission is application-owned today: register a calculation step on each child order that emits a `commission` adjustment, and configure a payout adapter for settlement:
+
+```ts
+createCommerce({
+  // …
+  payout: [hyperpayPayouts({ apiKey: env.HYPERPAY_KEY })],
+  plugins: [
+    commissionPlugin({ rate: 0.1 }),    // application or third-party plugin
+  ],
+})
+```
+
+The plugin runs per child order, so each merchant sees their own net total without any marketplace-specific code in the checkout path. See [50-adapter-system.md → Payout adapters](./50-adapter-system.md) for the settlement contract.
+
 ## Cross-links
 
 - Tenancy contract: [12-tenancy.md](./12-tenancy.md)

@@ -42,7 +42,7 @@ import {
 
 createCommerce({
   ...,
-  delivery: [leajlakDelivery({ apiKey: env.LEAJLAK })],
+  deliveries: [leajlakDelivery({ apiKey: env.LEAJLAK })],
   deliveryPricing: [distanceBased, flat, free],   // pass the strategy itself
 })
 
@@ -399,9 +399,11 @@ When the `delivery` slot is active, the union of built-in + custom strategies is
 commerce.delivery.strategies.list(): Promise<Array<{
   tag: string                          // 'distance-based' | 'flat' | 'app:vip-tier' | ...
   description: string | null
-  settingsSchema: JsonSchema           // serialized Zod schema
+  settingsSchema: JsonSchema           // Standard Schema → JSON Schema (contract)
 }>>
 ```
+
+`settingsSchema` is emitted as a standard JSON Schema object (converted from the registered Standard Schema at engine boot — see [47-validation.md](./47-validation.md)). An admin UI can render strategy-specific settings forms without knowing which schema library the strategy was authored with — the same contract used by [52-fulfillment-types.md → Discovery](./52-fulfillment-types.md#discovery) and [25-server-sdk.md → `metadata`](./25-server-sdk.md#metadata).
 
 This is the only read against the strategy registry. It supports a "create delivery method" form that needs to render the right settings inputs for the chosen strategy.
 
@@ -413,7 +415,7 @@ Splitting dispatch (adapter) from pricing (strategy) means:
 - A merchant with 4 delivery providers can use unified pricing across all of them. Pick the same strategy for every method; route dispatch via the adapter.
 - Provider-supplied pricing (e.g., Leajlak's live quote API) is just another strategy. It can be picked or ignored independently of using the same adapter for dispatch.
 
-The delivery adapter registry (`delivery: [...]`) and the import-time strategy registry are deliberately independent. They compose at the method level.
+The delivery adapter registry (`deliveries: [...]`) and the import-time strategy registry are deliberately independent. They compose at the method level.
 
 ## Tenancy
 

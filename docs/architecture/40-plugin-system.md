@@ -14,9 +14,26 @@ The plugin system is designed so that **plugins are tenancy-agnostic by default*
 - Adapter contracts — see [50-adapter-system.md](./50-adapter-system.md)
 - Schema validation contract for `operations.input` — see [47-validation.md](./47-validation.md)
 
+## Choosing an extension point
+
+Plugins have four extension surfaces. Pick by intent:
+
+| Intent | Surface | Shape |
+|---|---|---|
+| React **after** a core operation (e.g. send an email after checkout) | **Hook** | `on: { 'orders:checkout:after': … }` |
+| React to a **state change** regardless of trigger (op, webhook, plugin) | **State-change hook** | `on: { 'orders:confirmed': … }` |
+| Validate or rewrite input **before** a core operation runs | **Hook** | `on: { 'orders:checkout:before': … }` |
+| Add a new method to `commerce.*` that callers invoke directly | **Operation** | `operations: { 'coupons:create': { input, handler } }` |
+| Run work on a schedule (cron) or after a delay | **Task** | `tasks: { 'coupons:expire': { schedule, handler } }` |
+| Fire-and-forget side effects from within a hook | `runInBackground` | inside an `:after` hook |
+| Add states or transitions to the order lifecycle | **States** | `states: { 'fraud_review_pending': { from, to } }` |
+| Contribute a step to the pricing pipeline | **Calculation step** | `calculation: { steps: { 'pricing-rules:discounts': … } }` |
+
+Rule of thumb: **operations** are nouns callers reach for; **hooks** and **state-change events** are reactions; **tasks** are scheduled work; **calculation steps** are pure functions over the cart. If a single feature spans more than one of these, that's normal — most plugins use two or three.
+
 ## Core decisions
 
-- Plugins use a single `plugin('id', config)` factory. No class hierarchy, no `definePlugin` wrapper.
+- Plugins use a single `plugin('id', config)` factory. No class hierarchy, no separate `definePlugin` wrapper — the factory itself is the typed surface, and authors get compile-time feedback at the call site through `satisfies PluginDefinition<TId>`.
 - Tables are first-class values declared with `table('name', columns)`. The table value carries its own typed methods (`findUnique`, `insert`, etc.).
 - Tenancy is declared explicitly through a `support` block. Mismatches with the active `createCommerce()` tenancy config fail at install time.
 - Hooks are **keyed by operation and phase** (`'orders:checkout:before'`), not a discriminated-union ladder.
@@ -62,8 +79,26 @@ export const couponsPlugin = plugin('coupons', {
       // expire all coupons whose endDate is in the past
     },
   },
-})
+} satisfies PluginDefinition<'coupons'>)
 ```
+
+The `satisfies` clause makes shape errors visible at the plugin's call site instead of at `createCommerce()` init time. Mistyped operation keys, missing handlers, schema/handler mismatches, and unknown hook names all fail here:
+
+```ts
+plugin('coupons', {
+  operations: {
+    'coupons:create': {
+      input: CreateCouponInput,
+      handler: async ({ input, commerse }) => { /* … */ },   // ❌ TS: did you mean 'commerce'?
+    },
+  },
+  on: {
+    'orders:chekout:before': async () => { /* … */ },        // ❌ TS: not a known operation
+  },
+} satisfies PluginDefinition<'coupons'>)
+```
+
+Inside handlers, the plugin's own tables are typed against its `tables` declaration — `coupons.insert({...})` is checked against the local schema without any extra annotation.
 
 ### Plugin contract
 
@@ -202,7 +237,21 @@ Operation handlers receive a single destructured argument:
 
 - Operation keys must be unique across core + all installed plugins.
 - Namespace prefixes (e.g., `coupons:` in `coupons:create`) must be unique per plugin id by convention.
-- Collisions fail at `createCommerce()` initialization with a concrete error.
+- Collisions fail at `createCommerce()` initialization with a concrete, actionable error. The message names both contributors, points at the offending plugin, and lists the available resolutions:
+
+  ```
+  CommerceConfigError: Operation key collision
+
+    Plugin 'custom-orders' (v0.3.1) defines operation 'orders:cancel'
+    This collides with the core operation 'orders:cancel'
+
+    Resolutions:
+      → Hook the core operation instead:    on: { 'orders:cancel:before': … }
+      → Rename the plugin operation:        'custom-orders:cancel'
+      → Remove the plugin from createCommerce({ plugins: [...] })
+  ```
+
+  Two-plugin collisions follow the same shape, naming both plugins and pointing at the operation block in each.
 
 ## `on` handlers
 
@@ -396,6 +445,43 @@ Rules:
 - Base states remain defined by the core data model ([20-data-model.md](./20-data-model.md)).
 - All transitions must be declared. Undeclared transitions fail at runtime.
 - Plugins may not redefine base state meanings; they only add states and transitions.
+
+### Worked example — fraud-review hold
+
+A plugin that interposes a fraud-review state between `confirmed` and the rest of the lifecycle. Registers two new states, declares the transitions in and out, and drives them with a hook on the `orders:confirmed` state-change event:
+
+```ts
+plugin('fraud-review', {
+  version: '0.1.0',
+  support: { merchants: 'optional', branches: 'optional' },
+
+  states: {
+    'fraud_review_pending': {
+      from: ['confirmed'],
+      to: ['confirmed', 'cancelled'],     // released back, or rejected
+    },
+    'fraud_review_failed': {
+      from: ['fraud_review_pending'],
+      to: ['cancelled'],
+    },
+  },
+
+  on: {
+    'orders:confirmed': async ({ order, commerce, runInBackground }) => {
+      const risk = await scoreFraudRisk(order)
+      if (risk >= 0.8) {
+        await commerce.orders.transition({
+          id: order.id,
+          to: 'fraud_review_pending',
+        })
+        runInBackground(() => notifyOpsTeam(order, risk))
+      }
+    },
+  },
+} satisfies PluginDefinition<'fraud-review'>)
+```
+
+The state extensions flow into the inferred `OrderStatus` union, so route handlers that narrow on `order.status === 'fraud_review_pending'` see only the methods valid from that state (see [25-server-sdk.md → `orders`](./25-server-sdk.md#orders)).
 
 ## `requires` — runtime dependencies
 

@@ -40,6 +40,28 @@ await c.products.archive({ id: 'prod_456' })
 
 `withContext` returns a new SDK instance with the same shape. It does not mutate `commerce`.
 
+#### Recipe: binding context in a route handler
+
+`withContext` is the seam for every tenancy-aware operation. In a route handler, resolve the request's actor and tenancy once, then call the scoped instance for the rest of the request:
+
+```ts
+// app/api/storefront/orders/route.ts (Next.js)
+export async function GET(req: Request) {
+  const session = await resolveSession(req)
+  const store = commerce.withContext({
+    actorId: session.userId,
+    customerId: session.customerId,
+    merchantId: session.merchantId,   // present when tenancy.merchants is on
+    branchId: session.branchId,       // present when tenancy.branches is on
+  })
+
+  const orders = await store.orders.list()       // ✅ scoped to this merchant
+  return Response.json(orders)
+}
+```
+
+Bind context once per request. Do not call `withContext` inside loops or hooks — the returned SDK is meant to be reused for the lifetime of the request. For role-aware admin/storefront routing, see [12-tenancy.md → Admin UI patterns](./12-tenancy.md#admin-ui-patterns).
+
 ```ts
 interface RequestContext {
   customerId?: string | null
@@ -236,6 +258,25 @@ commerce.products.variants.archive({
 ---
 
 ## `orders`
+
+`Order` is a discriminated union over `status`. The methods reachable on `commerce.orders` for a narrowed order match the state machine in [20-data-model.md → Order state machine](./20-data-model.md#order-state-machine) — invalid transitions are removed from the type, not just rejected at runtime.
+
+```ts
+const order = await commerce.orders.get({ id })
+//   ^? Order<'placed'> | Order<'confirmed'> | Order<'completed'> | …
+
+if (order.status === 'placed') {
+  await commerce.orders.cancel(order)    // ✅ allowed from 'placed'
+  await commerce.orders.confirm(order)   // ✅ allowed from 'placed'
+}
+
+if (order.status === 'completed') {
+  await commerce.orders.cancel(order)    // ❌ Property 'cancel' does not exist on Order<'completed'>
+  await commerce.orders.refund(order)    // ✅ allowed from 'completed'
+}
+```
+
+Plugin-registered states flow into the same union — a plugin that adds `fraud_review_pending` extends `OrderStatus` and the per-status method maps accordingly. See [40-plugin-system.md → Order state extensions](./40-plugin-system.md).
 
 ### `orders.list`
 
@@ -702,7 +743,7 @@ commerce.fulfillment.createLabel({ orderId: string }): Promise<FulfillmentLabel>
 
 ## `delivery`
 
-`delivery` exists only when the `delivery: [...]` slot has at least one adapter. See [54-delivery-adapters.md](./54-delivery-adapters.md).
+`delivery` exists only when the `deliveries: [...]` slot has at least one adapter. See [54-delivery-adapters.md](./54-delivery-adapters.md).
 
 `commerce.delivery.methods.*` is automatically scoped to the request's branch context via `withContext` — listing methods returns only those visible at the current branch (own branch + merchant-wide + platform-wide). Creating without an explicit `branch` defaults to the request's branch.
 
@@ -926,6 +967,42 @@ commerce.tasks.list(): TaskDefinition[]
 ```
 
 `TaskKey` is the union of all registered task keys from core and installed plugins, inferred at `createCommerce()` time.
+
+---
+
+## `metadata`
+
+Introspection of the currently-installed configuration. Useful for admin UIs, generated API documentation, and `commerce doctor` tooling. All metadata calls are side-effect-free.
+
+```ts
+commerce.metadata.plugins(): Array<{
+  id: string
+  version: string
+  support: { merchants: 'optional' | 'required' | 'forbidden'; branches: ... }
+  operations: string[]                                  // operation keys contributed
+  hooks: string[]                                       // hook keys subscribed
+  states: string[]                                      // order states contributed
+  tables: string[]                                      // table names contributed
+  calculationSteps: string[]                            // step ids contributed
+}>
+
+commerce.metadata.operation(key: string): {
+  source: 'core' | { plugin: string; version: string }
+  input: JsonSchema                                     // Standard Schema → JSON Schema
+  output?: JsonSchema
+} | null
+
+commerce.metadata.adapters(): {
+  payments:     Array<{ id: string; capabilities: Record<string, boolean> }>
+  deliveries:   Array<{ id: string; capabilities: Record<string, boolean> }>
+  fulfillments: Array<{ id: string; capabilities: Record<string, boolean> }>
+  payouts:      Array<{ id: string; capabilities: Record<string, boolean> }>
+  storage:      Array<{ id: string }>
+  scheduler:    { id: string } | null
+}
+```
+
+All schema fields are emitted as JSON Schema (the Standard Schema → JSON Schema conversion is part of the contract — see [47-validation.md](./47-validation.md)) so admin UIs can render dynamic forms generically.
 
 ---
 

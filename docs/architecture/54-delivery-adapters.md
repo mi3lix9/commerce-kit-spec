@@ -17,7 +17,7 @@ The delivery pricing strategies that compute fees for these adapters live in [55
 
 ## Core decisions
 
-- Delivery adapters live in their own top-level config slot: `delivery: [ ... ]`.
+- Delivery adapters live in their own top-level config slot: `deliveries: [ ... ]`.
 - The slot is an array of adapter factory calls; each factory's return type carries a literal `id` (with optional `id` override for multi-instance use).
 - The `DeliveryAdapter` interface is purpose-built for driver dispatch. It does not share an interface with pickup, shipping, or carrier adapters.
 - Adapters are dispatch-only. Fee calculation lives in delivery pricing strategies, not in the adapter.
@@ -32,7 +32,7 @@ createCommerce({
   database: drizzleAdapter(db, { schema }),
   payments: [moyasar({ secretKey: env.MOYASAR_SECRET })],
 
-  delivery: [
+  deliveries: [
     localDelivery(),
     leajlakDelivery({ apiKey: env.LEAJLAK }),
     parcelDelivery({ apiKey: env.PARCEL }),
@@ -151,6 +151,35 @@ type CreateDeliveryResult = {
   metadata?: Record<string, unknown>
 }
 ```
+
+### Persisted `Delivery` entity
+
+The row materialized in the `delivery` table when the slot is active. A row is created in `pending` state on every confirmed order with a `deliveryMethodId`; the adapter call upgrades it to `dispatched` (or `failed`):
+
+```ts
+type Delivery = {
+  id: string
+  orderId: string
+  methodId: string
+  adapterId: string                                       // resolved delivery adapter id
+  providerReference: string | null                        // null until the adapter dispatches
+  state:
+    | 'pending'
+    | 'dispatched'
+    | 'in_transit'
+    | 'delivered'
+    | 'cancelled'
+    | 'failed'
+  estimatedArrival: Date | null
+  metadata: Record<string, unknown> | null                // adapter-supplied payload
+  merchant: MerchantId | null                             // present when tenancy.merchants is on
+  branch: BranchId | null                                 // present when tenancy.branches is on
+  createdAt: Date
+  updatedAt: Date
+}
+```
+
+State transitions flow through the `DeliveryEvent` stream (see below); apps should not mutate `delivery` rows directly.
 
 `createDelivery` is the only required method. Adapters declare capabilities as literal types — `capabilities: { cancellation: true, ... } as const` — and `cancelDelivery` / `trackDelivery` are only present in the type when the matching capability is `true`. This means TS rejects `commerce.delivery.cancel(...)` at compile time on adapters that don't support cancellation.
 
